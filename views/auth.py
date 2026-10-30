@@ -1,0 +1,1 @@
+# Handles secure login, registration, and user session initialization.

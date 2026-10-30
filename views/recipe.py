@@ -1,0 +1,1 @@
+# Complete recipe breakdown showing scaled ingredient weights, cook time, step-by-step instructions, and "Add to Diary" CTA.
