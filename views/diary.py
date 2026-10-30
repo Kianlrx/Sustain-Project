@@ -1,0 +1,1 @@
+# Central dashboard showing macro progress bars, meal slots (Breakfast, Lunch, Dinner, Snacks), and logged items.

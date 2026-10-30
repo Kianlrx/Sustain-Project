@@ -1,0 +1,1 @@
+# Manages personal metrics, allergen blocklists, macro target recalibration, and saved favorite recipes.

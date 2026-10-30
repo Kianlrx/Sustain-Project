@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        color: var(--text-color, #31333f);
+        font-family: var(--font-family, "Source Sans Pro", sans-serif);
+        font-size: 14px;
+      }
+      .label {
+        height: 24px;
+        margin-bottom: 4px;
+        font-size: 14px;
+        font-weight: 400;
+        line-height: 24px;
+      }
+      .select {
+        position: relative;
+        width: 100%;
+      }
+      .trigger {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        width: 100%;
+        min-height: 42px;
+        padding: 8px 12px;
+        border: 1px solid var(--border-color, rgba(49, 51, 63, 0.2));
+        border-radius: 8px;
+        background: var(--field-background, #fff);
+        color: var(--text-color, #31333f);
+        font: inherit;
+        text-align: left;
+        cursor: pointer;
+      }
+      .trigger:hover { border-color: var(--hover-border-color, rgba(49, 51, 63, 0.5)); }
+      .arrow {
+        width: 8px;
+        height: 8px;
+        margin: -4px 3px 0 12px;
+        border-right: 2px solid #6b6d76;
+        border-bottom: 2px solid #6b6d76;
+        transform: rotate(45deg);
+        flex: 0 0 auto;
+      }
+      .menu {
+        position: absolute;
+        z-index: 20;
+        top: calc(100% + 4px);
+        left: 0;
+        width: 100%;
+        padding: 4px;
+        border: 1px solid var(--border-color, rgba(49, 51, 63, 0.2));
+        border-radius: 8px;
+        background: var(--field-background, #fff);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+      }
+      .option {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        width: 100%;
+        min-height: 38px;
+        padding: 6px 8px 6px 10px;
+        border: 0;
+        border-radius: 5px;
+        background: transparent;
+        color: var(--text-color, #31333f);
+        font: inherit;
+        text-align: left;
+        cursor: pointer;
+      }
+      .option:hover, .option:focus-visible { background: var(--option-hover-background, #f0f2f6); outline: none; }
+      .hint {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 19px;
+        height: 19px;
+        margin-left: 8px;
+        border: 1px solid var(--hint-border-color, #9a9ba3);
+        border-radius: 50%;
+        color: var(--hint-text-color, #6b6d76);
+        font-size: 12px;
+        font-weight: 600;
+        opacity: 0;
+        flex: 0 0 auto;
+      }
+      .option:hover .hint,
+      .option:focus-visible .hint,
+      .option[aria-selected="true"] .hint { opacity: 1; }
+      .option:hover .hint,
+      .option:focus-visible .hint {
+        border-color: #d3d3d3;
+        color: #d3d3d3;
+      }
+      .option[aria-selected="true"] { font-weight: 600; }
+      [hidden] { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <div class="label" id="label">Weekly Exercise Activity</div>
+    <div class="select">
+      <button class="trigger" id="trigger" type="button" aria-haspopup="listbox" aria-expanded="false">
+        <span id="selected"></span><span class="arrow" aria-hidden="true"></span>
+      </button>
+      <div class="menu" id="menu" role="listbox" aria-labelledby="label" hidden></div>
+    </div>
+    <script>
+      const trigger = document.getElementById("trigger");
+      const menu = document.getElementById("menu");
+      const selectedLabel = document.getElementById("selected");
+      let args = {};
+      let currentValue = "";
+
+      function send(type, fields = {}) {
+        window.parent.postMessage(
+          { isStreamlitMessage: true, type, ...fields },
+          "*"
+        );
+      }
+
+      function setOpen(open) {
+        menu.hidden = !open;
+        trigger.setAttribute("aria-expanded", String(open));
+        send("streamlit:setFrameHeight", { height: open ? 70 + args.options.length * 42 : 70 });
+      }
+
+      function render(nextArgs, theme = {}) {
+        args = nextArgs;
+        document.getElementById("label").textContent = args.label;
+        const dark = theme.base === "dark";
+        const root = document.documentElement;
+        root.style.setProperty("--text-color", theme.textColor || (dark ? "#fafafa" : "#31333f"));
+        root.style.setProperty("--font-family", theme.font || '"Source Sans Pro", sans-serif');
+        root.style.setProperty("--field-background", theme.secondaryBackgroundColor || "#fff");
+        root.style.setProperty("--border-color", dark ? "rgba(250, 250, 250, 0.2)" : "rgba(49, 51, 63, 0.2)");
+        root.style.setProperty("--hover-border-color", dark ? "rgba(250, 250, 250, 0.5)" : "rgba(49, 51, 63, 0.5)");
+        root.style.setProperty("--option-hover-background", dark ? "rgba(250, 250, 250, 0.1)" : "#f0f2f6");
+        root.style.setProperty("--hint-border-color", dark ? "rgba(250, 250, 250, 0.6)" : "#9a9ba3");
+        root.style.setProperty("--hint-text-color", dark ? "#fafafa" : "#6b6d76");
+        currentValue = args.value || args.default || args.options[0];
+        selectedLabel.textContent = currentValue;
+        menu.replaceChildren();
+
+        args.options.forEach((option) => {
+          const row = document.createElement("button");
+          row.className = "option";
+          row.type = "button";
+          row.setAttribute("role", "option");
+          row.setAttribute("aria-selected", String(option === currentValue));
+
+          const text = document.createElement("span");
+          text.textContent = option;
+          const hint = document.createElement("span");
+          hint.className = "hint";
+          hint.textContent = "?";
+          hint.title = args.descriptions[option];
+          hint.setAttribute("aria-label", args.descriptions[option]);
+          row.append(text, hint);
+
+          row.addEventListener("click", () => {
+            currentValue = option;
+            selectedLabel.textContent = option;
+            send("streamlit:setComponentValue", { value: option, dataType: "json" });
+            setOpen(false);
+          });
+          menu.append(row);
+        });
+      }
+
+      trigger.addEventListener("click", () => setOpen(menu.hidden));
+      document.addEventListener("click", (event) => {
+        if (!event.target.closest(".select")) setOpen(false);
+      });
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+          setOpen(false);
+          trigger.focus();
+        }
+      });
+      window.addEventListener("blur", () => setOpen(false));
+      window.addEventListener("message", (event) => {
+        if (event.data?.type === "streamlit:render") render(event.data.args, event.data.theme);
+      });
+
+      send("streamlit:componentReady", { apiVersion: 1 });
+      send("streamlit:setFrameHeight", { height: 70 });
+    </script>
+  </body>
+</html>
