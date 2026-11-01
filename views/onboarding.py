@@ -1,6 +1,7 @@
 import re
 from dataclasses import asdict
 from decimal import Decimal
+from pathlib import Path
 
 import streamlit as st
 from models.profile import UserProfile
@@ -54,7 +55,11 @@ def _normalize_measurement_inputs() -> None:
 
 def render_onboarding_page():
     st.html(INPUT_STYLES)
-    st.title("📋 Welcome to Sustain")
+    st.image(
+        Path(__file__).resolve().parents[1] / "assets" / "sustain_logo.png",
+        width=56,
+    )
+    st.title("Welcome to Sustain")
     st.caption(
         "Please complete the questionnaire below to personalize your nutrition targets and meal recommendations."
     )

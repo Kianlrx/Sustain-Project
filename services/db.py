@@ -1,7 +1,6 @@
 #services/db.py - everything that talks to the database.
 #The database is one SQLite file, sustain.db. It has two tables:
 #    users:    id | username | password_hash | salt | onboarding_complete
-#              | recovery_question | recovery_hash | recovery_salt
 #    profiles: user_id | profile_json | targets_json | targets_manual
 
 import hashlib
@@ -31,12 +30,6 @@ def init_db():
             )
             """
         )
-        # Columns for password recovery. Added this way so an older sustain.db
-        # (made before these columns existed) gets them too.
-        existing = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
-        for column in ("recovery_question", "recovery_hash", "recovery_salt"):
-            if column not in existing:
-                conn.execute(f"ALTER TABLE users ADD COLUMN {column} TEXT")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS profiles (
@@ -58,30 +51,16 @@ def hash_password(password, salt):
     ).hex()
 
 
-def _normalize_answer(answer):
-    # "  Dublin " and "dublin" count as the same recovery answer.
-    return answer.strip().lower()
-
-
 # ---- Sign up and log in ----
 
-def create_user(username, password, recovery_question, recovery_answer):
+def create_user(username, password):
     """Sign up. Returns True if it worked, False if the username is taken."""
     salt = os.urandom(16).hex()
-    recovery_salt = os.urandom(16).hex()
     try:
         with get_connection() as conn:
             conn.execute(
-                "INSERT INTO users (username, password_hash, salt, "
-                "recovery_question, recovery_hash, recovery_salt) VALUES (?, ?, ?, ?, ?, ?)",
-                (
-                    username,
-                    hash_password(password, salt),
-                    salt,
-                    recovery_question,
-                    hash_password(_normalize_answer(recovery_answer), recovery_salt),
-                    recovery_salt,
-                ),
+                "INSERT INTO users (username, password_hash, salt) VALUES (?, ?, ?)",
+                (username, hash_password(password, salt), salt),
             )
         return True
     except sqlite3.IntegrityError:  # UNIQUE rule broken: username already exists
@@ -110,40 +89,7 @@ def mark_onboarding_complete(user_id):
         conn.execute("UPDATE users SET onboarding_complete = 1 WHERE id = ?", (user_id,))
 
 
-# ---- Password reset and change (SCRUM-93) ----
-
-def get_recovery_question(username):
-    """The user's recovery question, or None if the user doesn't exist or never set one."""
-    with get_connection() as conn:
-        row = conn.execute(
-            "SELECT recovery_question FROM users WHERE username = ?", (username,)
-        ).fetchone()
-    return row[0] if row else None
-
-
-def _set_password(conn, user_id, new_password):
-    salt = os.urandom(16).hex()
-    conn.execute(
-        "UPDATE users SET password_hash = ?, salt = ? WHERE id = ?",
-        (hash_password(new_password, salt), salt, user_id),
-    )
-
-
-def reset_password(username, recovery_answer, new_password):
-    """Forgot password. Returns True if the answer was right and the password changed."""
-    with get_connection() as conn:
-        row = conn.execute(
-            "SELECT id, recovery_hash, recovery_salt FROM users WHERE username = ?",
-            (username,),
-        ).fetchone()
-        if row is None or row[1] is None:
-            return False
-        user_id, recovery_hash, recovery_salt = row
-        if hash_password(_normalize_answer(recovery_answer), recovery_salt) != recovery_hash:
-            return False
-        _set_password(conn, user_id, new_password)
-    return True
-
+# ---- Password change ----
 
 def change_password(user_id, current_password, new_password):
     """Logged-in password change. Returns True if the current password was right."""
@@ -153,7 +99,11 @@ def change_password(user_id, current_password, new_password):
         ).fetchone()
         if row is None or hash_password(current_password, row[1]) != row[0]:
             return False
-        _set_password(conn, user_id, new_password)
+        salt = os.urandom(16).hex()
+        conn.execute(
+            "UPDATE users SET password_hash = ?, salt = ? WHERE id = ?",
+            (hash_password(new_password, salt), salt, user_id),
+        )
     return True
 
 
