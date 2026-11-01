@@ -1,8 +1,10 @@
 import re
+from dataclasses import asdict
 from decimal import Decimal
 
 import streamlit as st
 from models.profile import UserProfile
+from services import db
 
 
 INPUT_STYLES = """
@@ -228,7 +230,7 @@ def render_onboarding_page():
             st.error("Enter your other allergen or dietary restriction.")
             return
 
-        UserProfile(
+        profile = UserProfile(
             age=age,
             sex=sex,
             height_cm=parsed_height_cm,
@@ -246,4 +248,8 @@ def render_onboarding_page():
             + ([other_allergen.strip()] if "Other" in allergens else []),
             fitness_goal=fitness_goal,
         )
-        st.success("Questionnaire submitted. Your answers were not saved or sent to an external service.")
+        user_id = st.session_state.user["id"]
+        db.save_profile(user_id, asdict(profile))
+        db.mark_onboarding_complete(user_id)
+        st.session_state.user["onboarding_complete"] = True
+        st.rerun()  # the router in app.py now shows the diary
