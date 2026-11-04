@@ -180,3 +180,14 @@ def get_food_entries(user_id, log_date):
         ).fetchall()
     keys = ["meal_slot", "food_name", "calories", "protein_g", "carbs_g", "fat_g"]
     return [dict(zip(keys, row)) for row in rows]
+
+
+
+def add_food_entry(user_id, log_date, meal_slot, food_name, calories, protein_g, carbs_g, fat_g):
+    """Log one food into a meal slot (Breakfast, Lunch, Dinner or Snack)."""
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO food_log (user_id, log_date, meal_slot, food_name, "
+            "calories, protein_g, carbs_g, fat_g) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (user_id, log_date, meal_slot, food_name, calories, protein_g, carbs_g, fat_g),
+        )
