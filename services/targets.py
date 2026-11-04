@@ -1,18 +1,7 @@
 # Daily calorie and macro targets from a saved profile, and the recalibration trigger.
-#
-# TEMPORARY: the real engine is SCRUM-24 (services/tdee_engine.py, BMR + NEAT + EAT + TEF).
-# This uses Mifflin-St Jeor x an activity multiplier so the settings page works today.
-# When tdee_engine.py is ready, replace calculate_targets() with a call to it.
 
 from services import db
-
-ACTIVITY_MULTIPLIERS = {
-    "Sedentary": 1.2,
-    "Lightly Active": 1.375,
-    "Moderately Active": 1.55,
-    "Very Active": 1.725,
-    "Athlete": 1.9,
-}
+from services.tdee_engine import calculate_tdee
 
 GOAL_MODIFIERS = {
     "Fat Loss": 0.80,
@@ -26,10 +15,11 @@ CALORIE_FLOOR = 1200  # proposed default on SCRUM-115, to be confirmed
 
 def calculate_targets(profile):
     weight = profile["weight_kg"]
-    bmr = 10 * weight + 6.25 * profile["height_cm"] - 5 * profile["age"]
-    bmr += 5 if profile["sex"] == "Male" else -161
-    tdee = bmr * ACTIVITY_MULTIPLIERS.get(profile["activity_level"], 1.2)
-    calories = max(CALORIE_FLOOR, round(tdee * GOAL_MODIFIERS.get(profile["fitness_goal"], 1.0)))
+    tdee = calculate_tdee(profile)["tdee_kcal"]
+    calories = max(
+        CALORIE_FLOOR,
+        round(tdee * GOAL_MODIFIERS.get(profile["fitness_goal"], 1.0)),
+    )
 
     protein_g = round(1.8 * weight)
     fat_g = round(calories * 0.25 / 9)

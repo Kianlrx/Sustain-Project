@@ -6,6 +6,12 @@ from pathlib import Path
 import streamlit as st
 from models.profile import UserProfile
 from services import db
+from services.tdee_engine import (
+    DEFAULT_OCCUPATION_DAYS_PER_WEEK,
+    DEFAULT_OCCUPATION_HOURS_PER_WORKDAY,
+    OCCUPATION_METS,
+    TRAINING_TYPE_METS,
+)
 
 
 INPUT_STYLES = """
@@ -86,39 +92,109 @@ def render_onboarding_page():
                 format="%.15g",
             )
 
+        st.markdown("##### ❌ Allergies & Dietary Restrictions")
+        allergen_options = [
+            "Peanuts",
+            "Tree Nuts",
+            "Dairy",
+            "Eggs",
+            "Gluten",
+            "Shellfish",
+            "Soy",
+            "Pork",
+            "Other",
+        ]
+        allergen_label = (
+            "Select any allergens or dietary exclusions to block from recipes:"
+        )
+        allergens = st.multiselect(
+            allergen_label,
+            allergen_options,
+            key="allergens",
+        )
+        other_allergen = ""
+        if "Other" in allergens:
+            other_allergen = st.text_input(
+                "Other allergen or dietary restriction",
+                placeholder="Enter your restriction",
+                key="other_allergen",
+            )
+
     with col2:
         st.markdown("##### 🏃 Lifestyle & Fitness Goals")
-        activity_level = st.selectbox(
-            "Weekly Exercise Activity",
-            ["Sedentary", "Lightly Active", "Moderately Active", "Very Active", "Athlete"],
-            help=(
-                "**Sedentary:** Little to no planned exercise.\n\n"
-                "**Lightly Active:** Light exercise about 1-3 days per week.\n\n"
-                "**Moderately Active:** Moderate exercise about 3-5 days per week.\n\n"
-                "**Very Active:** Hard exercise about 6-7 days per week.\n\n"
-                "**Athlete:** Very intense training or sports most days."
-            ),
-            key="weekly_activity",
+        session_columns = (
+            st.columns(2)
+            if st.session_state.get("training_sessions_per_week", 3) > 0
+            else [st.container()]
         )
-        activity_level = activity_level or st.session_state.get("activity_level") or "Sedentary"
-        st.session_state["activity_level"] = activity_level
+        with session_columns[0]:
+            sessions_per_week = st.slider(
+                "Training sessions per week",
+                min_value=0,
+                max_value=14,
+                value=3,
+                step=1,
+                help="Count the workouts you typically complete in a week.",
+                key="training_sessions_per_week",
+            )
+        exercise_sessions = []
+        if sessions_per_week > 0:
+            with session_columns[1]:
+                session_type = st.selectbox(
+                    "Main exercise type",
+                    list(TRAINING_TYPE_METS),
+                    format_func=lambda value: {
+                        "Weight training (low intensity)": "Weight Training",
+                        "Endurance training (medium intensity)": "Endurance",
+                        "Interval training (high intensity)": "Interval Training",
+                    }[value],
+                    help=(
+                        "These are broad calorie-expenditure categories. The calculator "
+                        "uses representative MET estimates (weight training 3.5, "
+                        "endurance 6.8, interval training 8.0); actual expenditure "
+                        "depends on body weight, pace, and effort."
+                    ),
+                    key="training_type",
+                )
+            session_duration = st.number_input(
+                "Average time per workout (minutes)",
+                min_value=10,
+                max_value=240,
+                value=60,
+                step=5,
+                key="training_duration_minutes",
+            )
+            exercise_sessions = [
+                {
+                    "type": session_type,
+                    "met": TRAINING_TYPE_METS[session_type],
+                    "duration_minutes": session_duration,
+                    "sessions_per_week": sessions_per_week,
+                }
+            ]
 
         occupation_type = st.selectbox(
             "Daily Occupation Movement",
-            ["Desk Job", "Standing", "Active Work", "Heavy Labor"],
+            list(OCCUPATION_METS),
             help=(
-                "**Desk Job:** Mostly seated work with little movement.\n\n"
-                "**Standing:** Work that involves standing for much of the day.\n\n"
-                "**Active Work:** Frequent walking or light physical activity at work.\n\n"
-                "**Heavy Labor:** Physically demanding work, such as manual labor or heavy lifting."
+                "**Desk Job:** Mostly seated computer work (about 1.3 MET).\n\n"
+                "**Standing:** Standing with light tasks (about 1.8 MET).\n\n"
+                "**Active Work:** Moderate walking at work (about 3.8 MET).\n\n"
+                "**Heavy Labor:** Heavy manual work (about 6.5 MET)."
             ),
             key="occupation_movement",
         )
+        occupation_hours = DEFAULT_OCCUPATION_HOURS_PER_WORKDAY[occupation_type]
+        occupation_days = DEFAULT_OCCUPATION_DAYS_PER_WEEK
+        if occupation_type in {"Active Work", "Heavy Labor"} and occupation_hours == 0:
+            st.warning(
+                "Enter the time spent doing active work to include its occupational energy."
+            )
         step_count_options = [
             "Less than 2,500",
-            "2,500-5,000",
-            "5,000-7,500",
-            "7,500-10,000",
+            "2,500 - 5,000",
+            "5,000 - 7,500",
+            "7,500 - 10,000",
             "More than 10,000",
             "Custom amount",
         ]
@@ -130,9 +206,9 @@ def render_onboarding_page():
                     step_count_options,
                     help=(
                         "**Less than 2,500:** Fewer than 2,500 steps per day.\n\n"
-                        "**2,500-5,000:** Between 2,500 and 5,000 steps per day.\n\n"
-                        "**5,000-7,500:** Between 5,000 and 7,500 steps per day.\n\n"
-                        "**7,500-10,000:** Between 7,500 and 10,000 steps per day.\n\n"
+                        "**2,500 - 5,000:** Between 2,500 and 5,000 steps per day.\n\n"
+                        "**5,000 - 7,500:** Between 5,000 and 7,500 steps per day.\n\n"
+                        "**7,500 - 10,000:** Between 7,500 and 10,000 steps per day.\n\n"
                         "**More than 10,000:** More than 10,000 steps per day.\n\n"
                         "**Custom amount:** Enter your own daily step count."
                     ),
@@ -155,9 +231,9 @@ def render_onboarding_page():
                 step_count_options,
                 help=(
                     "**Less than 2,500:** Fewer than 2,500 steps per day.\n\n"
-                    "**2,500-5,000:** Between 2,500 and 5,000 steps per day.\n\n"
-                    "**5,000-7,500:** Between 5,000 and 7,500 steps per day.\n\n"
-                    "**7,500-10,000:** Between 7,500 and 10,000 steps per day.\n\n"
+                    "**2,500 - 5,000:** Between 2,500 and 5,000 steps per day.\n\n"
+                    "**5,000 - 7,500:** Between 5,000 and 7,500 steps per day.\n\n"
+                    "**7,500 - 10,000:** Between 7,500 and 10,000 steps per day.\n\n"
                     "**More than 10,000:** More than 10,000 steps per day.\n\n"
                     "**Custom amount:** Enter your own daily step count."
                 ),
@@ -186,42 +262,13 @@ def render_onboarding_page():
             key="fitness_goal",
         )
 
-    st.markdown("##### ❌ Allergies & Dietary Restrictions")
-    allergen_options = [
-        "Peanuts",
-        "Tree Nuts",
-        "Dairy",
-        "Eggs",
-        "Gluten",
-        "Shellfish",
-        "Soy",
-        "Pork",
-        "Other",
-    ]
-    allergen_label = "Select any allergens or dietary exclusions to block from recipe recommendations:"
-    if "Other" in st.session_state.get("allergens", []):
-        allergen_col, other_col = st.columns([1, 1])
-        with allergen_col:
-            allergens = st.multiselect(
-                allergen_label,
-                allergen_options,
-                key="allergens",
-            )
-        with other_col:
-            other_allergen = st.text_input(
-                "Other allergen or dietary restriction",
-                placeholder="Enter your restriction",
-                key="other_allergen",
-            )
-    else:
-        allergens = st.multiselect(
-            allergen_label,
-            allergen_options,
-            key="allergens",
+    _, submit_col = st.columns([3, 1])
+    with submit_col:
+        submitted = st.button(
+            "Submit Questionnaire",
+            on_click=_normalize_measurement_inputs,
+            use_container_width=True,
         )
-        other_allergen = st.session_state.get("other_allergen", "")
-
-    submitted = st.button("Submit Questionnaire", on_click=_normalize_measurement_inputs)
 
     if submitted:
         parsed_height_cm = _parse_measurement(height_cm, "Height (cm)", 100, 250)
@@ -241,9 +288,11 @@ def render_onboarding_page():
             height_cm=parsed_height_cm,
             weight_kg=parsed_weight_kg,
             body_fat_pct=body_fat_pct,
-            activity_level=activity_level,
             occupation_type=occupation_type,
             daily_steps=daily_steps,
+            exercise_sessions=exercise_sessions,
+            occupation_hours_per_workday=occupation_hours,
+            occupation_days_per_week=occupation_days,
             cooking_skill=cooking_skill,
             allergens=[
                 allergen
