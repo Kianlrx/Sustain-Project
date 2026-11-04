@@ -117,12 +117,14 @@ def save_database(df, db_path=DB_PATH):
     # sqlite cannot store dates with time zones so we save them as text
     df["DatePublished"] = df["DatePublished"].astype(str)
 
-    with sqlite3.connect(db_path) as conn:
-        df.to_sql("recipes", conn, if_exists="replace", index=False)
-        # compound index so macro filters and sorting by calories are fast
-        conn.execute("CREATE INDEX idx_recipes_macros ON recipes (Calories, ProteinContent, CarbohydrateContent, FatContent)")
-        # index so one recipe can be found quickly by its id
-        conn.execute("CREATE UNIQUE INDEX idx_recipes_id ON recipes (RecipeId)")
+    conn = sqlite3.connect(db_path)
+    df.to_sql("recipes", conn, if_exists="replace", index=False)
+    # compound index so macro filters and sorting by calories are fast
+    conn.execute("CREATE INDEX idx_recipes_macros ON recipes (Calories, ProteinContent, CarbohydrateContent, FatContent)")
+    # index so one recipe can be found quickly by its id
+    conn.execute("CREATE UNIQUE INDEX idx_recipes_id ON recipes (RecipeId)")
+    conn.commit()
+    conn.close()
 
 
 def build_database():
@@ -176,8 +178,10 @@ def find_recipes(max_calories=None, max_protein=None, max_carbs=None, max_fat=No
     sql = "SELECT * FROM recipes WHERE " + " AND ".join(conditions) + " ORDER BY Calories DESC LIMIT ?"
     values.append(limit)
 
-    with sqlite3.connect(db_path) as conn:
-        return pd.read_sql_query(sql, conn, params=values)
+    conn = sqlite3.connect(db_path)
+    results = pd.read_sql_query(sql, conn, params=values)
+    conn.close()
+    return results
 
 
 if __name__ == "__main__":
