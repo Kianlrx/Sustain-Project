@@ -1,7 +1,8 @@
 #services/db.py - everything that talks to the database.
-#The database is one SQLite file, sustain.db. It has two tables:
+#The database is one SQLite file, sustain.db. It has three tables:
 #    users:    id | username | password_hash | salt | onboarding_complete
 #    profiles: user_id | profile_json | targets_json | targets_manual
+#    food_log: id | user_id | log_date | meal_slot | food_name | calories | protein_g | carbs_g | fat_g
 
 import hashlib
 import json
@@ -37,6 +38,22 @@ def init_db():
                 profile_json TEXT,
                 targets_json TEXT,
                 targets_manual INTEGER NOT NULL DEFAULT 0
+            )
+            """
+        )
+        # There is one row for each food the user logs into a meal slot on a given day.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS food_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL REFERENCES users(id),
+                log_date TEXT NOT NULL,
+                meal_slot TEXT NOT NULL,
+                food_name TEXT NOT NULL,
+                calories INTEGER NOT NULL,
+                protein_g INTEGER NOT NULL,
+                carbs_g INTEGER NOT NULL,
+                fat_g INTEGER NOT NULL
             )
             """
         )
@@ -149,3 +166,17 @@ def get_targets(user_id):
     if not row or not row[0]:
         return None, False
     return json.loads(row[0]), bool(row[1])
+
+
+
+# Food diary
+def get_food_entries(user_id, log_date):
+    """All the food a user logs on a given day (log_date is "YYYY-MM-DD") as a list of dicts."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT meal_slot, food_name, calories, protein_g, carbs_g, fat_g "
+            "FROM food_log WHERE user_id = ? AND log_date = ? ORDER BY id",
+            (user_id, log_date),
+        ).fetchall()
+    keys = ["meal_slot", "food_name", "calories", "protein_g", "carbs_g", "fat_g"]
+    return [dict(zip(keys, row)) for row in rows]
