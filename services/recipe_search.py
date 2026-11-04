@@ -62,9 +62,9 @@ PLANT_SWAPS = {
 ANIMAL_WORDS = MEAT_WORDS + ALLERGEN_WORDS["Dairy"] + ALLERGEN_WORDS["Eggs"] + ["honey"]
 
 
-def column_name(allergen):
-    # turns "Tree Nuts" into "ContainsTreeNuts"
-    return "Contains" + allergen.replace(" ", "")
+def free_column(allergen):
+    # turns "Tree Nuts" into "TreeNutsFree"
+    return allergen.replace(" ", "") + "Free"
 
 
 def contains_any(text, words):
@@ -88,8 +88,8 @@ def add_tags(df):
         text = text.str.replace(phrase, swap, regex=False)
 
     for allergen, words in ALLERGEN_WORDS.items():
-        # 1 means the recipe contains this allergen
-        df[column_name(allergen)] = contains_any(text, words).astype(int)
+        # 1 means the recipe is free of this allergen
+        df[free_column(allergen)] = (~contains_any(text, words)).astype(int)
 
     # vegetarian means no meat or fish words
     df["Vegetarian"] = (~contains_any(text, MEAT_WORDS)).astype(int)
@@ -116,6 +116,8 @@ def save_database(df, db_path=DB_PATH):
         df[column] = df[column].map(lambda items: json.dumps(list(items)))
     # sqlite cannot store dates with time zones so we save them as text
     df["DatePublished"] = df["DatePublished"].astype(str)
+    # ids are whole numbers
+    df["RecipeId"] = df["RecipeId"].astype(int)
 
     conn = sqlite3.connect(db_path)
     df.to_sql("recipes", conn, if_exists="replace", index=False)
@@ -138,22 +140,29 @@ def build_database():
     return recipes
 
 
-def find_recipes(max_calories=None, max_protein=None, max_carbs=None, max_fat=None,
-                 diets=(), allergens=(), skill="Advanced", limit=20, db_path=DB_PATH):
+def find_recipes(calories=None, protein=None, carbs=None, fat=None, diets=(), allergens=(),
+                 keywords=(), skill="Advanced", limit=20, db_path=DB_PATH):
     conditions = []
     values = []
 
-    macro_limits = {
-        "Calories": max_calories,
-        "ProteinContent": max_protein,
-        "CarbohydrateContent": max_carbs,
-        "FatContent": max_fat,
+    macro_ranges = {
+        "Calories": calories,
+        "ProteinContent": protein,
+        "CarbohydrateContent": carbs,
+        "FatContent": fat,
     }
-    for column, limit_value in macro_limits.items():
-        if limit_value is not None:
-            # recipe must fit inside the macro budget
+    for column, macro_range in macro_ranges.items():
+        if macro_range is None:
+            continue
+        low, high = macro_range
+        if low is not None:
+            # recipe must have at least this much
+            conditions.append(f"{column} >= ?")
+            values.append(low)
+        if high is not None:
+            # recipe must not have more than this
             conditions.append(f"{column} <= ?")
-            values.append(limit_value)
+            values.append(high)
 
     for diet in diets:
         if diet not in ["Vegetarian", "Vegan", "Keto"]:
@@ -163,12 +172,17 @@ def find_recipes(max_calories=None, max_protein=None, max_carbs=None, max_fat=No
 
     for allergen in allergens:
         if allergen in ALLERGEN_WORDS:
-            # recipe must not contain this allergen
-            conditions.append(f"{column_name(allergen)} = 0")
+            # recipe must be free of this allergen
+            conditions.append(f"{free_column(allergen)} = 1")
         else:
             # for allergens typed in by the user, the text must not appear anywhere
             conditions.append("Name NOT LIKE ? AND RecipeIngredientParts NOT LIKE ? AND RecipeInstructions NOT LIKE ?")
             values.extend([f"%{allergen}%"] * 3)
+
+    for keyword in keywords:
+        # recipe must have this food.com keyword, for example "Breakfast" or "< 30 Mins"
+        conditions.append("Keywords LIKE ?")
+        values.append(f'%"{keyword}"%')
 
     # recipe must not be harder than the user's skill level
     conditions.append("SkillLevel <= ?")
@@ -182,6 +196,20 @@ def find_recipes(max_calories=None, max_protein=None, max_carbs=None, max_fat=No
     results = pd.read_sql_query(sql, conn, params=values)
     conn.close()
     return results
+
+
+def get_recipe(recipe_id, db_path=DB_PATH):
+    conn = sqlite3.connect(db_path)
+    # uses the id index so this is instant
+    results = pd.read_sql_query("SELECT * FROM recipes WHERE RecipeId = ?", conn, params=[recipe_id])
+    conn.close()
+    if results.empty:
+        return None
+    recipe = results.iloc[0].to_dict()
+    for column in LIST_COLUMNS:
+        # turn the json text back into lists
+        recipe[column] = json.loads(recipe[column])
+    return recipe
 
 
 if __name__ == "__main__":

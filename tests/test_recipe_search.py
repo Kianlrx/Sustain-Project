@@ -4,7 +4,7 @@ import unittest
 
 import pandas as pd
 
-from services.recipe_search import add_tags, find_recipes, save_database
+from services.recipe_search import add_tags, find_recipes, get_recipe, save_database
 
 
 def make_recipe(recipe_id, name, parts, calories, carbs, steps=3, keywords=(), cholesterol=0.0):
@@ -29,7 +29,7 @@ def make_recipe(recipe_id, name, parts, calories, carbs, steps=3, keywords=(), c
 
 RECIPES = pd.DataFrame([
     make_recipe(1, "Pork Sate", ["soy sauce", "lime"], 500, 20),
-    make_recipe(2, "Tofu Salad", ["tofu", "lettuce"], 300, 8),
+    make_recipe(2, "Tofu Salad", ["tofu", "lettuce"], 300, 8, keywords=["Lunch", "< 15 Mins"]),
     make_recipe(3, "Cheese Omelette", ["eggs", "cheese"], 400, 2, cholesterol=300.0),
     make_recipe(4, "Nutmeg Rice", ["rice", "nutmeg"], 350, 60, steps=12),
 ])
@@ -46,14 +46,14 @@ class TestTags(unittest.TestCase):
         self.tagged = add_tags(RECIPES).set_index("RecipeId")
 
     def test_pork_found_in_name_when_missing_from_ingredients(self):
-        self.assertEqual(self.tagged.loc[1, "ContainsPork"], 1)
+        self.assertEqual(self.tagged.loc[1, "PorkFree"], 0)
 
     def test_soy_sauce_counts_as_soy_and_gluten(self):
-        self.assertEqual(self.tagged.loc[1, "ContainsSoy"], 1)
-        self.assertEqual(self.tagged.loc[1, "ContainsGluten"], 1)
+        self.assertEqual(self.tagged.loc[1, "SoyFree"], 0)
+        self.assertEqual(self.tagged.loc[1, "GlutenFree"], 0)
 
     def test_nutmeg_is_not_a_tree_nut(self):
-        self.assertEqual(self.tagged.loc[4, "ContainsTreeNuts"], 0)
+        self.assertEqual(self.tagged.loc[4, "TreeNutsFree"], 1)
 
     def test_diet_tags(self):
         self.assertEqual(self.tagged.loc[2, "Vegan"], 1)
@@ -63,8 +63,8 @@ class TestTags(unittest.TestCase):
 
     def test_plant_milk_is_a_nut_not_dairy(self):
         tagged = add_tags(EXTRA_RECIPES).set_index("RecipeId")
-        self.assertEqual(tagged.loc[5, "ContainsDairy"], 0)
-        self.assertEqual(tagged.loc[5, "ContainsTreeNuts"], 1)
+        self.assertEqual(tagged.loc[5, "DairyFree"], 1)
+        self.assertEqual(tagged.loc[5, "TreeNutsFree"], 0)
         self.assertEqual(tagged.loc[5, "Vegan"], 1)
 
     def test_meat_cuts_are_not_vegetarian(self):
@@ -94,7 +94,21 @@ class TestFindRecipes(unittest.TestCase):
         return list(find_recipes(db_path=self.db_path, **filters)["RecipeId"])
 
     def test_calorie_budget_and_order(self):
-        self.assertEqual(self.find_ids(max_calories=400), [3, 4, 2])
+        self.assertEqual(self.find_ids(calories=(None, 400)), [3, 4, 2])
+
+    def test_macro_range(self):
+        self.assertEqual(self.find_ids(calories=(320, 450)), [3, 4])
+        self.assertEqual(self.find_ids(carbs=(5, 30)), [1, 2])
+
+    def test_keyword_filter(self):
+        self.assertEqual(self.find_ids(keywords=["Lunch"]), [2])
+        self.assertEqual(self.find_ids(keywords=["Lunch", "Dinner"]), [])
+
+    def test_get_recipe(self):
+        recipe = get_recipe(3, db_path=self.db_path)
+        self.assertEqual(recipe["Name"], "Cheese Omelette")
+        self.assertEqual(recipe["RecipeIngredientParts"], ["eggs", "cheese"])
+        self.assertIsNone(get_recipe(999, db_path=self.db_path))
 
     def test_diet_filter(self):
         self.assertEqual(self.find_ids(diets=["Vegan"]), [4, 2])
