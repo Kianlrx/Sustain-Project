@@ -44,7 +44,7 @@ def render_diary_page():
 
     st.subheader("Meals")
     with st.popover("Quick Log"):
-        _render_quick_log()
+        _render_quick_log(user["id"])
     slot_cols = st.columns(2)
     for i, slot in enumerate(MEAL_SLOTS):
         with slot_cols[i % 2]:  # two slots per row
@@ -80,15 +80,22 @@ def _render_meal_slot(slot, entries, remaining):
             st.session_state.meal_request = {"slot": slot, "remaining": remaining}
             st.rerun()
 
-def _render_quick_log():
+def _render_quick_log(user_id):
     # Log a food item that was not suggested by the app. If box is empty it comes back as None.
+
+    # Empty boxes after successful save before drawing again.
+    if st.session_state.pop("quick_log_saved", False):
+        st.session_state.quick_name = ""
+        for key in ["quick_calories", "quick_protein", "quick_carbs", "quick_fat"]:
+            st.session_state[key] = None
+
     with st.form("quick_log"):
-        name = st.text_input("Food name")
+        name = st.text_input("Food name", key="quick_name")
         slot = st.selectbox("Meal slot", MEAL_SLOTS)
-        calories = st.number_input("Calories (kcal)", value=None, step=1)
-        protein = st.number_input("Protein (g)", value=None, step=1)
-        carbs = st.number_input("Carbs (g)", value=None, step=1)
-        fat = st.number_input("Fat (g)", value=None, step=1)
+        calories = st.number_input("Calories (kcal)", value=None, step=1, key="quick_calories")
+        protein = st.number_input("Protein (g)", value=None, step=1, key="quick_protein")
+        carbs = st.number_input("Carbs (g)", value=None, step=1, key="quick_carbs")
+        fat = st.number_input("Fat (g)", value=None, step=1, key="quick_fat")
         if st.form_submit_button("Log food"):
             numbers = [calories, protein, carbs, fat]
             if not name.strip() or None in numbers:
@@ -96,7 +103,12 @@ def _render_quick_log():
             elif min(numbers) < 0:
                 st.error("Values can't be negative.")
             else:
-                st.success(f"{name.strip()} is ready to log.")
+                db.add_food_entry(
+                    user_id, date.today().isoformat(), slot, name.strip(),
+                    calories, protein, carbs, fat,
+                )
+                st.session_state.quick_log_saved = True
+                st.rerun()
 
 
 def _render_meal_request(request):

@@ -174,11 +174,12 @@ def get_food_entries(user_id, log_date):
     """All the food a user logs on a given day (log_date is "YYYY-MM-DD") as a list of dicts."""
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT meal_slot, food_name, calories, protein_g, carbs_g, fat_g "
+            "SELECT id, meal_slot, food_name, calories, protein_g, carbs_g, fat_g "
             "FROM food_log WHERE user_id = ? AND log_date = ? ORDER BY id",
             (user_id, log_date),
         ).fetchall()
-    keys = ["meal_slot", "food_name", "calories", "protein_g", "carbs_g", "fat_g"]
+    # With the id, an entry can be edited or deleted later.
+    keys = ["id", "meal_slot", "food_name", "calories", "protein_g", "carbs_g", "fat_g"]
     return [dict(zip(keys, row)) for row in rows]
 
 
