@@ -43,11 +43,13 @@ def render_diary_page():
     remaining = {key: max(targets[key] - totals[key], 0) for _, key, _ in NUTRIENTS}
 
     st.subheader("Meals")
+    with st.popover("Quick Log"):
+        _render_quick_log()
     slot_cols = st.columns(2)
     for i, slot in enumerate(MEAL_SLOTS):
         with slot_cols[i % 2]:  # two slots per row
             slot_entries = [entry for entry in entries if entry["meal_slot"] == slot]
-            _render_meal_slot(user["id"], slot, slot_entries, remaining)
+            _render_meal_slot(slot, slot_entries, remaining)
 
 
 def _render_progress(targets, totals):
@@ -62,7 +64,7 @@ def _render_progress(targets, totals):
 
 
 
-def _render_meal_slot(user_id, slot, entries, remaining):
+def _render_meal_slot(slot, entries, remaining):
     with st.container(border=True):
         st.markdown(f"##### {slot}")
         if not entries:
@@ -73,34 +75,28 @@ def _render_meal_slot(user_id, slot, entries, remaining):
                 f"P {entry['protein_g']}g · C {entry['carbs_g']}g · F {entry['fat_g']}g"
             )
 
-        log_col, request_col = st.columns(2)
-        with log_col.popover("Log food"):
-            _render_log_form(user_id, slot)
-
         # Opens the meal prompt for this slot, passing on what's left of today's budget.
-        if request_col.button("Request a meal", key=f"request_{slot}"):
+        if st.button("Request a meal", key=f"request_{slot}"):
             st.session_state.meal_request = {"slot": slot, "remaining": remaining}
             st.rerun()
 
-
-def _render_log_form(user_id, slot):
-    # Manual entry for now but a food database search could replace this later.
-    with st.form(f"log_{slot}", clear_on_submit=True):
-        name = st.text_input("Food", key=f"{slot}_name")
-        calories = st.number_input("Calories (kcal)", 0, 5000, 0, key=f"{slot}_calories")
-        protein = st.number_input("Protein (g)", 0, 500, 0, key=f"{slot}_protein")
-        carbs = st.number_input("Carbs (g)", 0, 500, 0, key=f"{slot}_carbs")
-        fat = st.number_input("Fat (g)", 0, 500, 0, key=f"{slot}_fat")
-        if st.form_submit_button("Add"):
-            if not name.strip():
-                st.error("Enter a food name.")
+def _render_quick_log():
+    # Log a food item that was not suggested by the app. If box is empty it comes back as None.
+    with st.form("quick_log"):
+        name = st.text_input("Food name")
+        slot = st.selectbox("Meal slot", MEAL_SLOTS)
+        calories = st.number_input("Calories (kcal)", value=None, step=1)
+        protein = st.number_input("Protein (g)", value=None, step=1)
+        carbs = st.number_input("Carbs (g)", value=None, step=1)
+        fat = st.number_input("Fat (g)", value=None, step=1)
+        if st.form_submit_button("Log food"):
+            numbers = [calories, protein, carbs, fat]
+            if not name.strip() or None in numbers:
+                st.error("Fill in every field.")
+            elif min(numbers) < 0:
+                st.error("Values can't be negative.")
             else:
-                db.add_food_entry(
-                    user_id, date.today().isoformat(), slot, name.strip(),
-                    calories, protein, carbs, fat,
-                )
-                st.rerun()
-
+                st.success(f"{name.strip()} is ready to log.")
 
 
 def _render_meal_request(request):
