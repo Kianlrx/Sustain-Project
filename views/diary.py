@@ -21,6 +21,12 @@ NUTRIENTS = [
 
 def render_diary_page():
     user = st.session_state.user
+
+    # A meal request replaces the diary until the user goes back.
+    if st.session_state.get("meal_request"):
+        _render_meal_request(st.session_state.meal_request)
+        return
+
     st.title(f"Welcome back, {user['username']}")
     st.caption(date.today().strftime("%A, %d %B %Y"))
 
@@ -34,12 +40,14 @@ def render_diary_page():
     totals = {key: sum(entry[key] for entry in entries) for _, key, _ in NUTRIENTS}
     _render_progress(targets, totals)
 
+    remaining = {key: max(targets[key] - totals[key], 0) for _, key, _ in NUTRIENTS}
+
     st.subheader("Meals")
     slot_cols = st.columns(2)
     for i, slot in enumerate(MEAL_SLOTS):
         with slot_cols[i % 2]:  # two slots per row
             slot_entries = [entry for entry in entries if entry["meal_slot"] == slot]
-            _render_meal_slot(user["id"], slot, slot_entries)
+            _render_meal_slot(user["id"], slot, slot_entries, remaining)
 
 
 def _render_progress(targets, totals):
@@ -54,7 +62,7 @@ def _render_progress(targets, totals):
 
 
 
-def _render_meal_slot(user_id, slot, entries):
+def _render_meal_slot(user_id, slot, entries, remaining):
     with st.container(border=True):
         st.markdown(f"##### {slot}")
         if not entries:
@@ -64,8 +72,15 @@ def _render_meal_slot(user_id, slot, entries):
                 f"**{entry['food_name']}** · {entry['calories']} kcal · "
                 f"P {entry['protein_g']}g · C {entry['carbs_g']}g · F {entry['fat_g']}g"
             )
-        with st.popover("Log food"):
+
+        log_col, request_col = st.columns(2)
+        with log_col.popover("Log food"):
             _render_log_form(user_id, slot)
+
+        # Opens the meal prompt for this slot, passing on what's left of today's budget.
+        if request_col.button("Request a meal", key=f"request_{slot}"):
+            st.session_state.meal_request = {"slot": slot, "remaining": remaining}
+            st.rerun()
 
 
 def _render_log_form(user_id, slot):
@@ -85,3 +100,19 @@ def _render_log_form(user_id, slot):
                     calories, protein, carbs, fat,
                 )
                 st.rerun()
+
+
+
+def _render_meal_request(request):
+    # Meal prompt flow placeholder.
+    # The prompt can read the slot and remaining budget from st.session_state.meal_request.
+    slot = request["slot"]
+    st.title(f"{slot} request")
+    st.subheader("Remaining budget for today")
+    cols = st.columns(4)
+    for col, (label, key, unit) in zip(cols, NUTRIENTS):
+        col.metric(label, f"{request['remaining'][key]} {unit}")
+    st.info("Meal suggestions will appear here once the meal prompt is built.")
+    if st.button("Back to diary"):
+        del st.session_state.meal_request
+        st.rerun()
