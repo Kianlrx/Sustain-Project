@@ -8,6 +8,8 @@ import streamlit as st
 
 from services import db, targets as targets_service
 
+from views.food_search import render_food_search_page
+
 MEAL_SLOTS = ["Breakfast", "Lunch", "Dinner", "Snack"]
 
 # (label, key in the targets dict, unit) for each progress bar
@@ -27,6 +29,12 @@ def render_diary_page():
         _render_meal_request(st.session_state.meal_request)
         return
 
+
+    # A food search replaces the diary until the user goes back.
+    if st.session_state.get("food_search"):
+        render_food_search_page(st.session_state.food_search)
+        return
+
     st.title(f"Welcome back, {user['username']}")
     st.caption(date.today().strftime("%A, %d %B %Y"))
 
@@ -43,8 +51,8 @@ def render_diary_page():
     remaining = {key: max(targets[key] - totals[key], 0) for _, key, _ in NUTRIENTS}
 
     st.subheader("Meals")
-    with st.popover("Quick Log"):
-        _render_quick_log(user["id"])
+    with st.popover("Log Food"):
+        _render_log_food(user["id"])
     slot_cols = st.columns(2)
     for i, slot in enumerate(MEAL_SLOTS):
         with slot_cols[i % 2]:  # two slots per row
@@ -79,6 +87,20 @@ def _render_meal_slot(slot, entries, remaining):
         if st.button("Request a meal", key=f"request_{slot}"):
             st.session_state.meal_request = {"slot": slot, "remaining": remaining}
             st.rerun()
+
+def _render_log_food(user_id):
+    # Search for a food item.
+    # The results open on the food search page.
+    with st.form("search_form"):
+        query = st.text_input("Search", placeholder="Search for a food", key="search_query")
+        if st.form_submit_button("Submit"):
+            if not query.strip():
+                st.error("Enter a food to search for.")
+            else:
+                st.session_state.food_search = query.strip()
+                st.rerun()
+
+    _render_quick_log(user_id)
 
 def _render_quick_log(user_id):
     # Log a food item that was not suggested by the app. If box is empty it comes back as None.
