@@ -100,7 +100,9 @@ def _render_log_food(user_id):
                 st.session_state.food_search = query.strip()
                 st.rerun()
 
-    _render_quick_log(user_id)
+    # Custom food form for anything the search doesn't find.
+    with st.expander("Enter custom food"):
+        _render_quick_log(user_id)
 
 def _render_quick_log(user_id):
     # Log a food item that was not suggested by the app. If box is empty it comes back as None.
