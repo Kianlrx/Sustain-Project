@@ -34,6 +34,92 @@ INPUT_STYLES = """
     transform: translateX(-12px);
 }
 
+.st-key-height_measurement_field,
+.st-key-weight_measurement_field,
+.st-key-body_fat_measurement_field,
+.st-key-custom_steps_field,
+.st-key-workout_duration_field {
+    position: relative;
+}
+
+.st-key-height_measurement_field > [data-testid="stElementContainer"]:has([data-testid="stAlert"]),
+.st-key-weight_measurement_field > [data-testid="stElementContainer"]:has([data-testid="stAlert"]),
+.st-key-custom_steps_field > [data-testid="stElementContainer"]:has([data-testid="stAlert"]),
+.st-key-workout_duration_field > [data-testid="stElementContainer"]:has([data-testid="stAlert"]) {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    width: max-content;
+    max-width: 100%;
+    height: auto;
+    box-sizing: border-box;
+    min-height: 0;
+    margin: 0;
+    pointer-events: none;
+    padding: 0;
+    z-index: 1000;
+}
+
+.st-key-body_fat_measurement_field > [data-testid="stElementContainer"]:has([data-testid="stAlert"]) {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    left: auto;
+    width: max-content;
+    max-width: 100%;
+    height: auto;
+    box-sizing: border-box;
+    min-height: 0;
+    margin: 0;
+    pointer-events: none;
+    padding: 0;
+    z-index: 1000;
+}
+
+.st-key-height_measurement_field [data-testid="stAlert"],
+.st-key-weight_measurement_field [data-testid="stAlert"],
+.st-key-body_fat_measurement_field [data-testid="stAlert"],
+.st-key-custom_steps_field [data-testid="stAlert"],
+.st-key-workout_duration_field [data-testid="stAlert"] {
+    width: max-content;
+    max-width: 100%;
+    height: auto;
+    box-sizing: border-box;
+    min-height: 0;
+    margin: 0;
+    padding: 0;
+}
+
+.st-key-height_measurement_field [data-testid="stAlertContainer"],
+.st-key-weight_measurement_field [data-testid="stAlertContainer"],
+.st-key-body_fat_measurement_field [data-testid="stAlertContainer"],
+.st-key-custom_steps_field [data-testid="stAlertContainer"],
+.st-key-workout_duration_field [data-testid="stAlertContainer"] {
+    padding: 0.5rem 1rem;
+}
+
+.st-key-height_measurement_field [data-testid="stAlertContentError"],
+.st-key-weight_measurement_field [data-testid="stAlertContentError"],
+.st-key-body_fat_measurement_field [data-testid="stAlertContentError"],
+.st-key-custom_steps_field [data-testid="stAlertContentError"],
+.st-key-workout_duration_field [data-testid="stAlertContentError"],
+.st-key-height_measurement_field [data-testid="stMarkdownContainer"],
+.st-key-weight_measurement_field [data-testid="stMarkdownContainer"],
+.st-key-body_fat_measurement_field [data-testid="stMarkdownContainer"],
+.st-key-custom_steps_field [data-testid="stMarkdownContainer"],
+.st-key-workout_duration_field [data-testid="stMarkdownContainer"] {
+    height: auto;
+    margin-bottom: 0;
+}
+
+.st-key-height_measurement_field [data-testid="stAlert"] p,
+.st-key-weight_measurement_field [data-testid="stAlert"] p,
+.st-key-body_fat_measurement_field [data-testid="stAlert"] p,
+.st-key-custom_steps_field [data-testid="stAlert"] p,
+.st-key-workout_duration_field [data-testid="stAlert"] p {
+    margin: 0;
+}
+
 </style>
 """
 
@@ -115,9 +201,47 @@ def _truncate_input_value(value: str) -> str:
     if not re.fullmatch(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)", value.strip()):
         return value
     try:
-        return format(_truncate_to_two_decimals(Decimal(value.strip())), "f")
+        truncated = format(_truncate_to_two_decimals(Decimal(value.strip())), "f")
+        return truncated.rstrip("0").rstrip(".") if "." in truncated else truncated
     except InvalidOperation:
         return value
+
+
+def _measurement_warning(
+    value: str, label: str, minimum: float, maximum: float
+) -> str | None:
+    if not value.strip():
+        return None
+    try:
+        _parse_measurement(value, label, minimum, maximum)
+    except ValueError as error:
+        return str(error)
+    return None
+
+
+def _parse_integer_input(
+    value: str, label: str, minimum: int, maximum: int
+) -> int:
+    value = value.strip()
+    if not re.fullmatch(r"[+-]?\d+", value):
+        raise ValueError(f"{label} must be a whole number.")
+
+    number = int(value)
+    if not minimum <= number <= maximum:
+        raise ValueError(f"{label} must be between {minimum} and {maximum}.")
+    return number
+
+
+def _integer_input_warning(
+    value: str, label: str, minimum: int, maximum: int
+) -> str | None:
+    if not value.strip():
+        return None
+    try:
+        _parse_integer_input(value, label, minimum, maximum)
+    except ValueError as error:
+        return str(error)
+    return None
 
 
 def _normalize_measurement_input(key: str) -> None:
@@ -145,7 +269,9 @@ def render_onboarding_page():
     st.session_state.setdefault("measurement_units_previous", "Metric")
     st.session_state.setdefault("height_cm", "175")
     st.session_state.setdefault("weight_kg", "75")
-    st.session_state.setdefault("body_fat_pct_input", "18")
+    st.session_state.setdefault("body_fat_pct_input", "")
+    st.session_state.setdefault("custom_daily_steps_input", "")
+    st.session_state.setdefault("training_duration_minutes_input", "60")
     if warning := st.session_state.pop("unit_conversion_warning", None):
         st.toast(warning, icon="⚠️")
 
@@ -176,19 +302,29 @@ def render_onboarding_page():
             sex = st.selectbox("Biological Sex", ["Male", "Female"])
         height_col, weight_col = st.columns(2)
         with height_col:
-            height_input = st.text_input(
-                height_label,
-                key="height_cm",
-                on_change=_normalize_measurement_input,
-                args=("height_cm",),
-            )
+            with st.container(key="height_measurement_field"):
+                height_input = st.text_input(
+                    height_label,
+                    key="height_cm",
+                    on_change=_normalize_measurement_input,
+                    args=("height_cm",),
+                )
+                if warning := _measurement_warning(
+                    height_input, height_label, height_min, height_max
+                ):
+                    st.error(warning)
         with weight_col:
-            weight_input = st.text_input(
-                weight_label,
-                key="weight_kg",
-                on_change=_normalize_measurement_input,
-                args=("weight_kg",),
-            )
+            with st.container(key="weight_measurement_field"):
+                weight_input = st.text_input(
+                    weight_label,
+                    key="weight_kg",
+                    on_change=_normalize_measurement_input,
+                    args=("weight_kg",),
+                )
+                if warning := _measurement_warning(
+                    weight_input, weight_label, weight_min, weight_max
+                ):
+                    st.error(warning)
 
         body_fat_col, body_fat_input_col = st.columns([1, 2])
         with body_fat_col:
@@ -196,14 +332,19 @@ def render_onboarding_page():
         body_fat_pct = None
         if use_body_fat:
             with body_fat_input_col:
-                body_fat_pct = st.text_input(
-                    "Body Fat %",
-                    key="body_fat_pct_input",
-                    placeholder="Enter body fat %",
-                    label_visibility="collapsed",
-                    on_change=_normalize_measurement_input,
-                    args=("body_fat_pct_input",),
-                )
+                with st.container(key="body_fat_measurement_field"):
+                    body_fat_pct = st.text_input(
+                        "Body Fat %",
+                        key="body_fat_pct_input",
+                        placeholder="Enter body fat %",
+                        label_visibility="collapsed",
+                        on_change=_normalize_measurement_input,
+                        args=("body_fat_pct_input",),
+                    )
+                    if warning := _measurement_warning(
+                        body_fat_pct, "Body Fat %", 3, 80
+                    ):
+                        st.error(warning)
 
         st.markdown("##### 🥦 Allergies & Dietary Restrictions (optional)")
         allergen_options = [
@@ -250,7 +391,7 @@ def render_onboarding_page():
                 max_value=14,
                 value=3,
                 step=1,
-                help="Count the workouts you typically complete in a week.",
+                help="Set to 0 if you don't exercise regularly.",
                 key="training_sessions_per_week",
             )
         exercise_sessions = []
@@ -265,21 +406,32 @@ def render_onboarding_page():
                         "Interval training (high intensity)": "Interval Training",
                     }[value],
                     help=(
-                        "These are broad calorie-expenditure categories. The calculator "
-                        "uses representative MET estimates (weight training 3.5, "
-                        "endurance 6.8, interval training 8.0); actual expenditure "
-                        "depends on body weight, pace, and effort."
+                        "**Weight Training:** Short duration exercises—not cardiovascularly demanding \n\n"
+                        "**Endurance:** Long duration, moderate intensity exercise (running, cycling, etc.)\n\n"
+                        "**Interval Training:** High-intensity interval sessions (VO2 max, Threshold, etc.)"
                     ),
                     key="training_type",
                 )
             with session_columns[2]:
-                session_duration = st.number_input(
-                    "Average time per workout (minutes)",
-                    min_value=10,
-                    max_value=240,
-                    value=60,
-                    step=5,
-                    key="training_duration_minutes",
+                with st.container(key="workout_duration_field"):
+                    session_duration_input = st.text_input(
+                        "Average time per workout (minutes)",
+                        key="training_duration_minutes_input",
+                    )
+                    duration_warning = _integer_input_warning(
+                        session_duration_input,
+                        "Average time per workout",
+                        10,
+                        240,
+                    )
+                    if duration_warning:
+                        st.error(duration_warning)
+                session_duration = (
+                    _parse_integer_input(
+                        session_duration_input, "Average time per workout", 10, 240
+                    )
+                    if not duration_warning and session_duration_input.strip()
+                    else 60
                 )
             exercise_sessions = [
                 {
@@ -293,11 +445,14 @@ def render_onboarding_page():
         occupation_type = st.selectbox(
             "Daily Occupation Movement",
             list(OCCUPATION_METS),
+            format_func=lambda value: (
+                "Sedentary" if value == "Desk Job" else value
+            ),
             help=(
-                "**Desk Job:** Mostly seated computer work (about 1.3 MET).\n\n"
-                "**Standing:** Standing with light tasks (about 1.8 MET).\n\n"
-                "**Active Work:** Moderate walking at work (about 3.8 MET).\n\n"
-                "**Heavy Labor:** Heavy manual work (about 6.5 MET)."
+                "**Sedentary:** Mostly seated, minimal movement.\n\n"
+                "**Standing:** Standing with light movement.\n\n"
+                "**Active Work:** Moderate walking.\n\n"
+                "**Heavy Labor:** Heavy manual work."
             ),
             key="occupation_movement",
         )
@@ -318,42 +473,34 @@ def render_onboarding_page():
         if st.session_state.get("daily_steps_option", step_count_options[0]) == "Custom amount":
             step_count_col, custom_steps_col = st.columns([1, 1])
             with step_count_col:
-                st.selectbox(
+                daily_steps_option = st.selectbox(
                     "Estimated Daily Step Count",
                     step_count_options,
-                    help=(
-                        "**Less than 2,500:** Fewer than 2,500 steps per day.\n\n"
-                        "**2,500 - 5,000:** Between 2,500 and 5,000 steps per day.\n\n"
-                        "**5,000 - 7,500:** Between 5,000 and 7,500 steps per day.\n\n"
-                        "**7,500 - 10,000:** Between 7,500 and 10,000 steps per day.\n\n"
-                        "**More than 10,000:** More than 10,000 steps per day.\n\n"
-                        "**Custom amount:** Enter your own daily step count."
-                    ),
                     key="daily_steps_option",
                 )
             with custom_steps_col:
-                custom_daily_steps = st.number_input(
-                    "Custom amount",
-                    min_value=0,
-                    max_value=50000,
-                    step=1,
-                    value=None,
-                    key="custom_daily_steps",
-                    placeholder="Steps per day",
+                with st.container(key="custom_steps_field"):
+                    custom_daily_steps = st.text_input(
+                        "Custom amount",
+                        key="custom_daily_steps_input",
+                        placeholder="Steps per day",
+                    )
+                    custom_steps_warning = _integer_input_warning(
+                        custom_daily_steps, "Custom daily steps", 0, 50000
+                    )
+                    if custom_steps_warning:
+                        st.error(custom_steps_warning)
+            daily_steps = (
+                _parse_integer_input(
+                    custom_daily_steps, "Custom daily steps", 0, 50000
                 )
-            daily_steps = custom_daily_steps
+                if not custom_steps_warning and custom_daily_steps.strip()
+                else None
+            )
         else:
             daily_steps_option = st.selectbox(
                 "Estimated Daily Step Count",
                 step_count_options,
-                help=(
-                    "**Less than 2,500:** Fewer than 2,500 steps per day.\n\n"
-                    "**2,500 - 5,000:** Between 2,500 and 5,000 steps per day.\n\n"
-                    "**5,000 - 7,500:** Between 5,000 and 7,500 steps per day.\n\n"
-                    "**7,500 - 10,000:** Between 7,500 and 10,000 steps per day.\n\n"
-                    "**More than 10,000:** More than 10,000 steps per day.\n\n"
-                    "**Custom amount:** Enter your own daily step count."
-                ),
                 key="daily_steps_option",
             )
             daily_steps = daily_steps_option
@@ -407,11 +554,23 @@ def render_onboarding_page():
         if body_fat_pct is not None:
             try:
                 body_fat_pct = _parse_measurement(
-                    str(body_fat_pct), "Body Fat %", 3, 60
+                    str(body_fat_pct), "Body Fat %", 3, 80
                 )
             except ValueError as error:
                 warnings.append(str(error))
-        if daily_steps is None:
+        if sessions_per_week > 0 and duration_warning:
+            warnings.append(duration_warning)
+        if (
+            sessions_per_week > 0
+            and not duration_warning
+            and not session_duration_input.strip()
+        ):
+            warnings.append("Average time per workout must be a whole number.")
+        if daily_steps_option == "Custom amount" and custom_steps_warning:
+            warnings.append(custom_steps_warning)
+        if daily_steps is None and not (
+            daily_steps_option == "Custom amount" and custom_daily_steps.strip()
+        ):
             warnings.append("Enter your custom daily step count.")
         if warnings:
             for warning in warnings:
