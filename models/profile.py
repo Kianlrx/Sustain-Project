@@ -1,4 +1,7 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+
+DIETARY_PREFERENCES = ("Vegetarian", "Vegan", "Keto")
 
 
 @dataclass
@@ -17,3 +20,4 @@ class UserProfile:
     occupation_hours_per_workday: float | None = None
     occupation_days_per_week: float | None = None
     occupational_steps_per_workday: int | None = None
+    diets: list[str] = field(default_factory=list)

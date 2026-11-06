@@ -1,6 +1,7 @@
 # Manages personal metrics, allergen blocklists, macro target recalibration, and saved favorite recipes.
 import streamlit as st
 
+from models.profile import DIETARY_PREFERENCES
 from services import db, targets as targets_service
 from services.tdee_engine import (
     DEFAULT_OCCUPATION_DAYS_PER_WEEK,
@@ -165,6 +166,11 @@ def _render_profile_form(user_id, profile):
         others = [a for a in profile["allergens"] if a not in ALLERGENS]
         allergens = st.multiselect("Allergens and exclusions", ALLERGENS, default=known)
         other = st.text_input("Other exclusions (comma separated)", ", ".join(others))
+        diets = st.multiselect(
+            "Dietary preferences",
+            DIETARY_PREFERENCES,
+            default=profile.get("diets", []),
+        )
         if st.form_submit_button("Save changes"):
             profile.update(
                 weight_kg=weight,
@@ -176,6 +182,7 @@ def _render_profile_form(user_id, profile):
                 occupation_days_per_week=DEFAULT_OCCUPATION_DAYS_PER_WEEK,
                 occupational_steps_per_workday=None,
                 allergens=allergens + [o.strip() for o in other.split(",") if o.strip()],
+                diets=diets,
                 exercise_sessions=[
                     {
                         "type": session_type,
