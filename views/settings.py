@@ -162,6 +162,11 @@ def _render_profile_form(user_id, profile):
         goal = st.selectbox(
             "Primary Fitness Goal", FITNESS_GOALS, index=FITNESS_GOALS.index(profile["fitness_goal"])
         )
+        measurement_units = st.selectbox(
+            "Preferred measurement units",
+            ["Metric", "Imperial"],
+            index=0 if profile.get("measurement_units", "Metric") == "Metric" else 1,
+        )
         known = [a for a in profile["allergens"] if a in ALLERGENS]
         others = [a for a in profile["allergens"] if a not in ALLERGENS]
         allergens = st.multiselect("Allergens and exclusions", ALLERGENS, default=known)
@@ -174,6 +179,7 @@ def _render_profile_form(user_id, profile):
         if st.form_submit_button("Save changes"):
             profile.update(
                 weight_kg=weight,
+                measurement_units=measurement_units,
                 fitness_goal=goal,
                 occupation_type=occupation,
                 occupation_hours_per_workday=DEFAULT_OCCUPATION_HOURS_PER_WORKDAY[
