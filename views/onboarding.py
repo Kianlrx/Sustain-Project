@@ -607,7 +607,10 @@ def render_onboarding_page():
             fitness_goal=fitness_goal,
         )
         user_id = st.session_state.user["id"]
-        db.save_profile(user_id, asdict(profile))
+        saved_profile = asdict(profile)
+        saved_profile["measurement_units"] = measurement_units
+        db.save_profile(user_id, saved_profile)
         db.mark_onboarding_complete(user_id)
         st.session_state.user["onboarding_complete"] = True
-        st.rerun()  # the router in app.py now shows the diary
+        st.session_state["main_navigation"] = "Dashboard"
+        st.rerun()
