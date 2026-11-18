@@ -1,0 +1,68 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    html, body { margin: 0; padding: 0; background: transparent; }
+    button {
+      width: 42px; height: 40px; border: 1px solid #343b4e; border-radius: 9px;
+      background: #1e222d; color: #e2e8f0; font-size: 19px; cursor: pointer;
+    }
+    button:hover { border-color: #ff6363; color: #fff; }
+    button:disabled { cursor: wait; opacity: .7; }
+  </style>
+</head>
+<body>
+  <button type="button" aria-label="Speak your craving" title="Speak your craving">🎙</button>
+  <script>
+    const button = document.querySelector("button");
+    const send = (value) => window.parent.postMessage({
+      isStreamlitMessage: true,
+      type: "streamlit:setComponentValue",
+      value
+    }, "*");
+
+    button.addEventListener("click", () => {
+      const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!Recognition) {
+        send({ error: "Speech recognition is not supported by this browser." });
+        return;
+      }
+
+      const recognition = new Recognition();
+      recognition.lang = navigator.language || "en-US";
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+      button.disabled = true;
+      button.textContent = "…";
+
+      recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript.trim();
+        if (transcript) send(transcript);
+      };
+      recognition.onerror = (event) => {
+        const message = event.error === "not-allowed"
+          ? "Allow microphone access to use voice input."
+          : "Voice input could not be completed. Please try again.";
+        send({ error: message });
+      };
+      recognition.onend = () => {
+        button.disabled = false;
+        button.textContent = "🎙";
+      };
+      recognition.start();
+    });
+
+    window.parent.postMessage({
+      isStreamlitMessage: true,
+      type: "streamlit:componentReady",
+      apiVersion: 1
+    }, "*");
+    window.parent.postMessage({
+      isStreamlitMessage: true,
+      type: "streamlit:setFrameHeight",
+      height: 42
+    }, "*");
+  </script>
+</body>
+</html>

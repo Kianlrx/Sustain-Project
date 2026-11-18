@@ -1,20 +1,31 @@
 #services/db.py - everything that talks to the database.
-#The database is one SQLite file, sustain.db. It has three tables:
+#The database is one SQLite file, sustain.db. It has four tables:
 #    users:    id | username | password_hash | salt | onboarding_complete
 #    profiles: user_id | profile_json | targets_json | targets_manual
 #    food_log: id | user_id | log_date | meal_slot | food_name | calories | protein_g | carbs_g | fat_g
+#    saved_recipes: id | user_id | recipe_id | recipe_json
 
 import hashlib
 import json
 import os
 import sqlite3
+from contextlib import contextmanager
 
 DB_PATH = "sustain.db"
 
 
+@contextmanager
 def get_connection():
-    # Opens the database file, and creates it if it doesn't exist yet.
-    return sqlite3.connect(DB_PATH)
+    # Opens the database file, and closes it after the transaction completes.
+    connection = sqlite3.connect(DB_PATH)
+    try:
+        yield connection
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
 
 
 def init_db():
@@ -54,6 +65,17 @@ def init_db():
                 protein_g INTEGER NOT NULL,
                 carbs_g INTEGER NOT NULL,
                 fat_g INTEGER NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS saved_recipes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL REFERENCES users(id),
+                recipe_id TEXT NOT NULL,
+                recipe_json TEXT NOT NULL,
+                UNIQUE(user_id, recipe_id)
             )
             """
         )
@@ -191,4 +213,38 @@ def add_food_entry(user_id, log_date, meal_slot, food_name, calories, protein_g,
             "INSERT INTO food_log (user_id, log_date, meal_slot, food_name, "
             "calories, protein_g, carbs_g, fat_g) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (user_id, log_date, meal_slot, food_name, calories, protein_g, carbs_g, fat_g),
+        )
+
+
+def get_saved_recipes(user_id):
+    """Return a user's saved recipe data in the order it was saved."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT recipe_id, recipe_json FROM saved_recipes "
+            "WHERE user_id = ? ORDER BY id",
+            (user_id,),
+        ).fetchall()
+    return [
+        {**json.loads(recipe_json), "recipe_id": recipe_id}
+        for recipe_id, recipe_json in rows
+    ]
+
+
+def save_recipe(user_id, recipe_id, recipe):
+    """Save or refresh a recipe for one user."""
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO saved_recipes (user_id, recipe_id, recipe_json) "
+            "VALUES (?, ?, ?) ON CONFLICT(user_id, recipe_id) "
+            "DO UPDATE SET recipe_json = excluded.recipe_json",
+            (user_id, str(recipe_id), json.dumps(recipe)),
+        )
+
+
+def remove_saved_recipe(user_id, recipe_id):
+    """Remove a saved recipe without affecting other users' copies."""
+    with get_connection() as conn:
+        conn.execute(
+            "DELETE FROM saved_recipes WHERE user_id = ? AND recipe_id = ?",
+            (user_id, str(recipe_id)),
         )
