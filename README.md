@@ -32,6 +32,7 @@ Install the project dependencies and start Streamlit:
 
 ```powershell
 python -m pip install -r requirements.txt
+$env:USDA_API_KEY = "PDC6KmT8nFtzmp8HjqTmRp8tJkJMGt9qdKfkC7HP"
 python -m streamlit run app.py
 ```
 

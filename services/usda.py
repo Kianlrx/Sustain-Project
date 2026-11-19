@@ -104,7 +104,7 @@ def parse_food(food):
 def search_foods(query, page_size=25, timeout=10):
     """Search USDA FoodData Central for foods matching a validated query."""
     query = normalize_food_query(query)
-    api_key = os.environ.get("USDA_API_KEY", "DEMO_KEY").strip() or "DEMO_KEY"
+    api_key = os.environ.get("USDA_API_KEY", "PDC6KmT8nFtzmp8HjqTmRp8tJkJMGt9qdKfkC7HP").strip() or "PDC6KmT8nFtzmp8HjqTmRp8tJkJMGt9qdKfkC7HP"
     parameters = urlencode(
         {
             "api_key": api_key,
