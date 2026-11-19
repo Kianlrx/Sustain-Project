@@ -3,6 +3,7 @@ import unittest
 
 from views.dashboard import (
     _nutrition_section,
+    _profile_heading,
     _profile_summary,
     _projected_weight,
     _projection_markup,
@@ -41,22 +42,24 @@ class WeightTrajectoryTests(unittest.TestCase):
     def test_chart_shows_weight_axis_and_only_dynamic_curve(self):
         chart = _trajectory_chart(80, 500)
         self.assertIn("Weight (kg)", chart)
-        self.assertIn("Week 24:", chart)
-        self.assertEqual(chart.count('class="sd-chart-point"'), 25)
+        self.assertIn("at week 24", chart)
+        self.assertEqual(chart.count('class="sd-chart-line"'), 1)
+        self.assertIn('stroke-dasharray%3D%220%209%22', chart)
+        self.assertNotIn("sd-chart-point", chart)
         self.assertNotIn("Linear comparison", chart)
         self.assertNotIn("sd-chart-linear-segment", chart)
 
     def test_chart_uses_imperial_units_for_all_weekly_hover_values(self):
         chart = _trajectory_chart(75, 500, measurement_units="Imperial")
         self.assertIn("Weight (lb)", chart)
-        self.assertIn("Week 0: 165.3 lb estimated weight", chart)
-        self.assertIn("Week 24:", chart)
+        self.assertIn("165.3 lb at week 0", chart)
+        self.assertIn("lb at week 24", chart)
 
     def test_chart_can_show_a_constant_calorie_target(self):
         chart = _trajectory_chart(80, 500, metric="Calories", calorie_target=1800)
         self.assertIn("Calories (kcal/day)", chart)
-        self.assertEqual(chart.count('class="sd-chart-point"'), 25)
-        self.assertIn("Week 24: 1800.0 kcal/day calorie target", chart)
+        self.assertNotIn("sd-chart-point", chart)
+        self.assertIn("1800.0 kcal/day at week 24", chart)
 
     def test_projection_reports_expected_next_week_change_in_selected_units(self):
         markup = _projection_markup(
@@ -80,7 +83,7 @@ class WeightTrajectoryTests(unittest.TestCase):
             },
             {"bmr_method": "Mifflin-St Jeor"},
         )
-        self.assertIn("Your nutrition profile", markup)
+        self.assertIn("Your nutrition profile", _profile_heading())
         self.assertIn("68.9 in", markup)
         self.assertIn("165.3 lb", markup)
         self.assertNotIn("sd-pills", markup)

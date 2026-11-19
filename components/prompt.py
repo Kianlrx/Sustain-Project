@@ -1,1 +1,0 @@
-# Pop-up window capturing text/voice cravings, presenting top 3 candidate recipes, and offering AI generation

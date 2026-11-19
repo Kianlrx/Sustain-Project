@@ -1,10 +1,12 @@
 from datetime import date
 from html import escape
-from math import atan2, ceil, degrees, exp, floor
+from math import ceil, exp, floor
+from urllib.parse import quote
 
 import streamlit as st
 
 from services import db, targets as targets_service
+from services.branding import logo_data_uri
 from services.tdee_engine import calculate_tdee
 
 
@@ -37,35 +39,25 @@ WATER_SHIFT_KG_AT_BASELINE = 2.54
 WATER_SHIFT_DECAY_RATE = 0.35
 TISSUE_LOSS_KG_AT_BASELINE = 9.79
 TISSUE_LOSS_DECAY_RATE = 0.0415
+CHART_SAMPLES_PER_WEEK = 4
 DASHBOARD_CSS = """
 <style>
     [data-testid="stAppViewContainer"] { background:#0e1117; color:#e2e8f0; }
     [data-testid="stHeader"] { background:rgba(14,17,23,.94); }
-    .block-container { max-width:1080px; padding:2rem clamp(1rem,2vw,1.5rem) 3rem; }
+    .block-container { max-width:none; padding:2rem clamp(1rem,3vw,2.5rem) 3rem; }
+    .st-key-dashboard_profile { padding:1.25rem; border:1px solid #343b4e;
+        border-radius:14px; background:#161b26; }
     .st-key-dashboard_edit button {
-        min-height:40px; border:1px solid #343b4e; border-radius:8px;
-        margin-top:.35rem; margin-bottom:.75rem;
-        background:#1e222d; color:#e2e8f0;
+        min-height:40px; border:0; border-radius:8px;
+        background:#ff4b4b; color:#fff; font-weight:650;
     }
-    .st-key-dashboard_edit button:hover {
-        border-color:rgba(255,75,75,.65); background:#262c3a; color:#fff;
-    }
-    .st-key-dashboard_diary button {
-        min-height:40px; border:1px solid #ff4b4b; border-radius:8px;
-        margin-top:.35rem; margin-bottom:.75rem;
-        background:#ff4b4b; color:#fff;
-    }
-    .st-key-dashboard_diary button:hover {
-        border-color:#ff6363; background:#ff6363; color:#fff;
-    }
+    .st-key-dashboard_edit button:hover { background:#ff6363; color:#fff; }
     .sd, .sd * { box-sizing:border-box; }
     .sd { color:#e2e8f0; font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
     .sd-hero { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap;
         gap:1rem; padding:.1rem 0 .45rem; }
     .sd-brand { display:flex; align-items:center; gap:.75rem; }
-    .sd-logo { width:42px; height:42px; display:grid; place-items:center; border-radius:11px;
-        color:#fff; font-size:1.25rem; font-weight:800;
-        background:linear-gradient(135deg,#ff6363,#ff334b); }
+    .sd-logo { width:42px; height:42px; object-fit:contain; border-radius:11px; }
     .sd-brand-name { color:#fff; font-size:1.2rem; font-weight:800; letter-spacing:-.03em; }
     .sd-status { display:inline-flex; align-items:center; gap:.4rem; border-radius:999px;
         padding:.32rem .62rem; color:#34d399; font-size:.8rem; font-weight:700;
@@ -79,7 +71,6 @@ DASHBOARD_CSS = """
     .sd-heading { margin:0; color:#fff; font-size:1.35rem; line-height:1.35; font-weight:750; }
     .sd-kicker { color:#b0bdcf; font: .78rem ui-monospace,SFMono-Regular,Consolas,monospace;
         letter-spacing:.08em; text-transform:uppercase; }
-    .sd-profile-card { padding:1.25rem; border:1px solid #343b4e; border-radius:14px; background:#161b26; }
     .sd-profile-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:1.25rem 2rem; }
     .sd-profile-item { min-width:0; }
     .sd-profile-label { display:block; margin-bottom:.3rem; color:#b0bdcf; font-size:.82rem; }
@@ -149,8 +140,7 @@ DASHBOARD_CSS = """
         border-bottom:1px solid #384052;
         background:repeating-linear-gradient(to bottom,transparent 0,transparent calc(33.333% - 1px),
         #343b4e calc(33.333% - 1px),#343b4e 33.333%); }
-    .sd-chart-segment { position:absolute; height:4px; transform-origin:left center;
-        border-radius:999px; }
+    .sd-chart-line { position:absolute; inset:0; width:100%; height:100%; overflow:visible; }
     .sd-chart-point { position:absolute; z-index:1; width:12px; height:12px;
         transform:translate(-50%,-50%); border:2px solid #161b26; border-radius:50%;
         cursor:crosshair; transition:transform .12s ease, box-shadow .12s ease; }
@@ -249,17 +239,25 @@ def _profile_summary(profile, tdee):
         for label, value in details
     )
     return f"""
-        <section class="sd-section sd-profile-card">
-          <div class="sd-section-head">
-            <div>
-              <h2 class="sd-heading">Your nutrition profile</h2>
-              <div class="sd-muted">Personalized from the information you shared</div>
-            </div>
-            <span class="sd-status">Complete</span>
-          </div>
+        <div class="sd">
           <div class="sd-profile-grid">{details_markup}</div>
-          <div class="sd-muted" style="margin-top:1.25rem">Energy estimate: {_escape(tdee['bmr_method'])}</div>
-        </section>
+        </div>
+    """
+
+
+def _energy_estimate(tdee):
+    return (
+        f'<div class="sd"><div class="sd-muted">Energy estimate: '
+        f"{_escape(tdee['bmr_method'])}</div></div>"
+    )
+
+
+def _profile_heading():
+    return """
+        <div class="sd">
+          <h2 class="sd-heading">Your nutrition profile</h2>
+          <div class="sd-muted">Personalized from the information you shared</div>
+        </div>
     """
 
 
@@ -380,31 +378,35 @@ def _trajectory_chart(
         low -= padding
         high += padding
 
-    plot_width, plot_height = 760, 300
-
-    def y_percent(value):
-        return (high - value) / (high - low) * 100
-
-    segments = []
-    for week in range(24):
-        x_percent = week / 24 * 100
-        y_value = y_percent(values[week])
-        next_y = y_percent(values[week + 1])
-        delta_y = (next_y - y_value) / 100 * plot_height
-        angle = degrees(atan2(delta_y, plot_width / 24))
-        segments.append(
-            f'<span class="sd-chart-segment" style="left:{x_percent:.3f}%;'
-            f'top:{y_value:.3f}%;width:{100 / 24:.3f}%;'
-            f'transform:rotate({angle:.3f}deg);background:{axis_color}"></span>'
-        )
-    points = "".join(
-        f'<span class="sd-chart-point" tabindex="0" role="img" '
-        f'aria-label="Week {week}: {value:.1f} {tooltip_unit}'
-        f'{" estimated weight" if is_weight else " calorie target"}" '
-        f'style="left:{week / 24 * 100:.3f}%;top:{y_percent(value):.3f}%;'
-        f'background:{axis_color}" title="Week {week}: {value:.1f} {tooltip_unit}'
-        f'{" estimated weight" if is_weight else " calorie target"}"></span>'
-        for week, value in enumerate(values)
+    # One continuous SVG path sampled every quarter-week, so the dotted line
+    # is smooth and its dots are evenly spaced. The SVG stretches to fill the
+    # plot; non-scaling-stroke keeps the dots round at any size.
+    view_width, view_height = 1000, 300
+    samples = CHART_SAMPLES_PER_WEEK * 24
+    if is_weight:
+        curve = [
+            _projected_weight(weight, daily_deficit, step / CHART_SAMPLES_PER_WEEK)
+            * weight_factor
+            for step in range(samples + 1)
+        ]
+    else:
+        curve = [values[0]] * (samples + 1)
+    points = " ".join(
+        f"{step / samples * view_width:.2f},"
+        f"{(high - value) / (high - low) * view_height:.2f}"
+        for step, value in enumerate(curve)
+    )
+    svg = (
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {view_width} {view_height}" '
+        'preserveAspectRatio="none" overflow="visible">'
+        f'<polyline points="{points}" fill="none" stroke="{axis_color}" '
+        'stroke-width="4" stroke-linecap="round" stroke-linejoin="round" '
+        'stroke-dasharray="0 9" vector-effect="non-scaling-stroke"/></svg>'
+    )
+    # st.html strips inline <svg>, so the line is embedded as an image instead.
+    line = (
+        f'<img class="sd-chart-line" alt="" aria-hidden="true" '
+        f'src="data:image/svg+xml,{quote(svg)}">'
     )
     y_ticks = "".join(
         f"<span>{high - (high - low) * tick / 3:.0f}</span>"
@@ -415,9 +417,8 @@ def _trajectory_chart(
           <div class="sd-chart-y-title">{axis_title}</div>
           <div class="sd-chart-y-axis" aria-hidden="true">{y_ticks}</div>
           <div class="sd-chart-plot" role="group"
-            aria-label="24-week {axis_title.lower()} estimate. Focus or hover over weekly points for exact values.">
-            {''.join(segments)}
-            {points}
+            aria-label="24-week {axis_title.lower()} estimate: {values[0]:.1f} {tooltip_unit} at week 0 to {values[-1]:.1f} {tooltip_unit} at week 24.">
+            {line}
           </div>
         </div>
         <div class="sd-chart-x-axis">
@@ -652,7 +653,7 @@ def _dashboard_header(username):
         <header class="sd-hero">
           <div>
             <div class="sd-brand">
-              <span class="sd-logo">S</span>
+              <img class="sd-logo" src="{logo_data_uri()}" alt="Sustain logo">
               <span class="sd-brand-name">Sustain</span>
               <span class="sd-status">● Onboarding complete</span>
             </div>
@@ -667,7 +668,6 @@ def _dashboard_header(username):
 def _dashboard_markup(profile, targets, tdee, goal_delta):
     return f"""
         <main class="sd">
-          {_profile_summary(profile, tdee)}
           {_nutrition_section(targets, tdee, goal_delta)}
         </main>
     """
@@ -693,28 +693,22 @@ def render_dashboard_page():
         f'{_dashboard_header(user["username"])}</main>'
     )
     st.html(header)
-    edit_column, diary_column, spacer_column = st.columns(
-        [2.4, 3, 4], vertical_alignment="center", gap="small"
-    )
-    with spacer_column:
-        st.empty()
-    with edit_column:
-        if st.button(
-            "Edit onboarding inputs",
-            key="dashboard_edit",
-            use_container_width=True,
-        ):
-            st.session_state["navigation_target"] = "Settings"
-            st.rerun()
-    with diary_column:
-        if st.button(
-            "Continue to Food Diary →",
-            key="dashboard_diary",
-            type="primary",
-            use_container_width=True,
-        ):
-            st.session_state["navigation_target"] = "Diary"
-            st.rerun()
+    with st.container(key="dashboard_profile"):
+        st.html(_profile_heading())
+        st.html(f"{DASHBOARD_CSS}{_profile_summary(profile, tdee)}")
+        estimate_column, edit_column = st.columns(
+            [5, 1.6], vertical_alignment="center"
+        )
+        estimate_column.html(_energy_estimate(tdee))
+        with edit_column:
+            if st.button(
+                "Edit onboarding inputs",
+                key="dashboard_edit",
+                icon=":material/edit:",
+                use_container_width=True,
+            ):
+                st.session_state["navigation_target"] = "Settings"
+                st.rerun()
 
     st.html(_dashboard_markup(profile, targets, tdee, goal_delta))
 

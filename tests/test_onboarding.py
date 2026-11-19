@@ -1,6 +1,8 @@
 import unittest
 
 from views.onboarding import (
+    DEFAULTS,
+    _collect_profile,
     _convert_measurement_value,
     _integer_input_warning,
     _measurement_warning,
@@ -144,6 +146,66 @@ class OnboardingInputTests(unittest.TestCase):
             _normalize_allergens(["Other"], "sesame, mushrooms"),
             ["sesame", "mushrooms"],
         )
+
+
+class CollectProfileTests(unittest.TestCase):
+    def answers(self, **overrides):
+        state = dict(DEFAULTS)
+        state.update(overrides)
+        return state
+
+    def test_default_answers_build_a_complete_profile(self):
+        profile, errors = _collect_profile(self.answers())
+        self.assertFalse(any(errors.values()))
+        self.assertEqual(profile["height_cm"], 175)
+        self.assertEqual(profile["weight_kg"], 75)
+        self.assertIsNone(profile["body_fat_pct"])
+        self.assertEqual(profile["measurement_units"], "Metric")
+
+    def test_up_to_fourteen_training_sessions_are_accepted(self):
+        profile, errors = _collect_profile(self.answers(training_sessions_per_week=14))
+        self.assertFalse(errors[2])
+        self.assertEqual(profile["exercise_sessions"][0]["sessions_per_week"], 14)
+        _, errors = _collect_profile(self.answers(training_sessions_per_week=15))
+        self.assertTrue(errors[2])
+
+    def test_no_sessions_means_no_exercise(self):
+        profile, _ = _collect_profile(self.answers(training_sessions_per_week=0))
+        self.assertEqual(profile["exercise_sessions"], [])
+
+    def test_errors_are_reported_on_the_step_they_belong_to(self):
+        profile, errors = _collect_profile(
+            self.answers(
+                height_cm="five",
+                daily_steps_option="Custom amount",
+                custom_daily_steps_input="",
+            )
+        )
+        self.assertIsNone(profile)
+        self.assertEqual(errors[1], ["Height (cm) must be a number."])
+        self.assertEqual(errors[2], ["Custom daily steps must be a whole number."])
+
+    def test_body_fat_is_only_used_when_switched_on(self):
+        profile, _ = _collect_profile(self.answers(body_fat_pct_input="18"))
+        self.assertIsNone(profile["body_fat_pct"])
+        profile, _ = _collect_profile(
+            self.answers(ob_use_body_fat=True, body_fat_pct_input="18")
+        )
+        self.assertEqual(profile["body_fat_pct"], 18)
+
+    def test_imperial_answers_are_saved_in_metric(self):
+        profile, _ = _collect_profile(
+            self.answers(measurement_units="Imperial", height_cm="68.9", weight_kg="165.35")
+        )
+        self.assertAlmostEqual(profile["height_cm"], 175.0, places=1)
+        self.assertAlmostEqual(profile["weight_kg"], 75.0, places=1)
+        self.assertEqual(profile["measurement_units"], "Imperial")
+
+    def test_allergen_pills_and_custom_exclusions_are_combined(self):
+        profile, _ = _collect_profile(
+            self.answers(allergens=["Dairy"], other_allergen="cilantro, mushrooms")
+        )
+        self.assertEqual(profile["allergens"], ["Dairy", "cilantro", "mushrooms"])
 
 
 if __name__ == "__main__":

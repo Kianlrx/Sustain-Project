@@ -1,18 +1,15 @@
-import base64
-from functools import lru_cache
-from io import BytesIO
-from pathlib import Path
 from urllib.parse import quote
 
 import streamlit as st
-from PIL import Image
 
 from services import db
+from services.branding import logo_data_uri
 from views.auth import render_login_page, render_logout_button
 from views.onboarding import render_onboarding_page
 from views.dashboard import render_dashboard_page
 from views.diary import render_diary_page
 from views.settings import render_settings_page
+from views.weight import render_weight_page
 
 st.set_page_config(
     page_title="Sustain", layout="wide", initial_sidebar_state="expanded"
@@ -78,7 +75,6 @@ BUTTON_ICONS = {
     "nav_settings": "settings",
     "sidebar_logout_button": "logout",
 }
-LOGO_PATH = Path(__file__).resolve().parent / "assets" / "sustain_logo.png"
 
 
 def _icon_url(name):
@@ -88,17 +84,6 @@ def _icon_url(name):
         f'stroke-linejoin="round">{_ICON_PATHS[name]}</svg>'
     )
     return f'url("data:image/svg+xml,{quote(svg)}")'
-
-
-@lru_cache(maxsize=1)
-def _logo_data_uri():
-    # The source PNG is ~650KB; embed a 64px copy (2x for a sharp 32px logo).
-    with Image.open(LOGO_PATH) as image:
-        image = image.convert("RGBA")
-        image.thumbnail((64, 64), Image.LANCZOS)
-        buffer = BytesIO()
-        image.save(buffer, format="PNG", optimize=True)
-    return "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode()
 
 
 def _buttons(suffix=""):
@@ -332,7 +317,7 @@ def render_sidebar():
     with st.sidebar:
         with st.container(key="sidebar_brand"):
             st.markdown(
-                f'<div class="sustain-brand"><img src="{_logo_data_uri()}" '
+                f'<div class="sustain-brand"><img src="{logo_data_uri()}" '
                 'alt="Sustain logo"><span>Sustain</span></div>',
                 unsafe_allow_html=True,
             )
@@ -352,6 +337,12 @@ def render_sidebar():
 
 
 db.init_db()
+# Hide Streamlit's "Press Enter to submit form" hint under inputs, on every form.
+st.markdown(
+    '<style>[data-testid="InputInstructions"] { display: none; }</style>',
+    unsafe_allow_html=True,
+)
+
 st.session_state.setdefault("user", None)
 
 user = st.session_state.user
@@ -375,6 +366,6 @@ else:
         elif page == "Diary":
             render_diary_page()
         elif page == "Weight":
-            render_dashboard_page()
+            render_weight_page()
         else:
             render_settings_page()

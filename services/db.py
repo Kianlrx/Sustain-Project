@@ -1,9 +1,10 @@
 #services/db.py - everything that talks to the database.
-#The database is one SQLite file, sustain.db. It has four tables:
+#The database is one SQLite file, sustain.db. It has five tables:
 #    users:    id | username | password_hash | salt | onboarding_complete
 #    profiles: user_id | profile_json | targets_json | targets_manual
 #    food_log: id | user_id | log_date | meal_slot | food_name | calories | protein_g | carbs_g | fat_g
 #    saved_recipes: id | user_id | recipe_id | recipe_json
+#    weight_log: id | user_id | log_date | weight_kg | note
 
 import hashlib
 import json
@@ -65,6 +66,18 @@ def init_db():
                 protein_g INTEGER NOT NULL,
                 carbs_g INTEGER NOT NULL,
                 fat_g INTEGER NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS weight_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL REFERENCES users(id),
+                log_date TEXT NOT NULL,
+                weight_kg REAL NOT NULL,
+                note TEXT NOT NULL DEFAULT '',
+                UNIQUE(user_id, log_date)
             )
             """
         )
@@ -214,6 +227,51 @@ def add_food_entry(user_id, log_date, meal_slot, food_name, calories, protein_g,
             "calories, protein_g, carbs_g, fat_g) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (user_id, log_date, meal_slot, food_name, calories, protein_g, carbs_g, fat_g),
         )
+
+
+# Weight log: one weigh-in per user per day, always stored in kg.
+def get_weight_entries(user_id):
+    """All of a user's weigh-ins, oldest first, as a list of dicts."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT id, log_date, weight_kg, note FROM weight_log "
+            "WHERE user_id = ? ORDER BY log_date",
+            (user_id,),
+        ).fetchall()
+    keys = ["id", "log_date", "weight_kg", "note"]
+    return [dict(zip(keys, row)) for row in rows]
+
+
+def save_weight_entry(user_id, log_date, weight_kg, note=""):
+    """Add a weigh-in, or replace the one already logged for that date."""
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO weight_log (user_id, log_date, weight_kg, note) "
+            "VALUES (?, ?, ?, ?) ON CONFLICT(user_id, log_date) "
+            "DO UPDATE SET weight_kg = excluded.weight_kg, note = excluded.note",
+            (user_id, log_date, weight_kg, note),
+        )
+
+
+def delete_weight_entry(user_id, entry_id):
+    with get_connection() as conn:
+        conn.execute(
+            "DELETE FROM weight_log WHERE user_id = ? AND id = ?",
+            (user_id, entry_id),
+        )
+
+
+def get_logged_foods(user_id, limit=30):
+    """Distinct foods the user has logged before, newest first (used as 'Saved Foods')."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT food_name, calories, protein_g, carbs_g, fat_g, MAX(id) AS last_id "
+            "FROM food_log WHERE user_id = ? GROUP BY food_name "
+            "ORDER BY last_id DESC LIMIT ?",
+            (user_id, limit),
+        ).fetchall()
+    keys = ["food_name", "calories", "protein_g", "carbs_g", "fat_g"]
+    return [dict(zip(keys, row[:5])) for row in rows]
 
 
 def get_saved_recipes(user_id):

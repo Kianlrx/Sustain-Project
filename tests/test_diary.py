@@ -31,9 +31,9 @@ class DiaryProgressTests(unittest.TestCase):
         )
 
         self.assertIn("825 kcal", markup)
-        self.assertIn("22g protein", markup)
-        self.assertIn("108g carbs", markup)
-        self.assertIn("34g fat", markup)
+        self.assertIn("22p", markup)
+        self.assertIn("108c", markup)
+        self.assertIn("34f", markup)
 
     def test_progress_label_is_bold(self):
         markup = _progress_label_markup("Calories")
