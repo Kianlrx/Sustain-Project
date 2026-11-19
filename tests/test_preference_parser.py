@@ -1,6 +1,27 @@
+import json
+import os
 import unittest
+from io import BytesIO
+from unittest.mock import patch
+from urllib.error import HTTPError
 
 from services import preference_parser as parser
+
+SAMPLE = {
+    "cuisines": ["thai"], "flavors": ["spicy"], "preparation": [],
+    "meal_category": "Dinner", "diets": ["Vegan"], "exclusions": ["peanut"],
+    "max_cook_minutes": 20,
+}
+
+
+def fake_response(content):
+    # what Groq sends back: the model's answer as a string inside the first choice
+    body = {"choices": [{"message": {"content": content}}]}
+    return BytesIO(json.dumps(body).encode("utf-8"))
+
+
+def rate_limited():
+    return HTTPError(parser.API_URL, 429, "Too Many Requests", {}, None)
 
 
 class TestPromptTemplate(unittest.TestCase):
@@ -18,3 +39,60 @@ class TestPromptTemplate(unittest.TestCase):
         # find_recipes raises an error for any diet it doesn't know
         for diet in parser.DIETS:
             self.assertIn(diet, ["Vegetarian", "Vegan", "Keto"])
+
+
+
+@patch.dict(os.environ, {"GROQ_API_KEY": "test-key"})
+@patch("services.preference_parser.time.sleep")  # don't really wait in tests
+@patch("services.preference_parser.urlopen")
+class TestServiceClient(unittest.TestCase):
+    def test_returns_filters_from_model(self, urlopen, sleep):
+        urlopen.return_value = fake_response(json.dumps(SAMPLE))
+        self.assertEqual(parser.request_filters("vegan thai, spicy, no peanuts"), SAMPLE)
+        sent = json.loads(urlopen.call_args[0][0].data)
+        self.assertEqual(sent["model"], parser.MODEL)
+        self.assertTrue(sent["response_format"]["json_schema"]["strict"])
+        self.assertEqual(urlopen.call_args.kwargs["timeout"], parser.TIMEOUT_SECONDS)
+
+    def test_retries_after_rate_limit(self, urlopen, sleep):
+        urlopen.side_effect = [rate_limited(), fake_response(json.dumps(SAMPLE))]
+        self.assertEqual(parser.request_filters("thai"), SAMPLE)
+        self.assertEqual(urlopen.call_count, 2)
+
+    def test_gives_up_after_repeated_timeouts(self, urlopen, sleep):
+        urlopen.side_effect = TimeoutError()
+        with self.assertRaises(parser.AIServiceError):
+            parser.request_filters("thai")
+        self.assertEqual(urlopen.call_count, parser.MAX_ATTEMPTS)
+
+    def test_spaces_out_calls(self, urlopen, sleep):
+        urlopen.side_effect = [fake_response(json.dumps(SAMPLE)) for _ in range(2)]
+        parser.request_filters("thai")
+        parser.request_filters("curry")
+        # the second call waits so calls stay SECONDS_BETWEEN_CALLS apart
+        self.assertGreater(sleep.call_args[0][0], 0)
+
+    def test_does_not_retry_bad_key(self, urlopen, sleep):
+        urlopen.side_effect = HTTPError(parser.API_URL, 401, "Unauthorized", {}, None)
+        with self.assertRaises(parser.AIServiceError):
+            parser.request_filters("thai")
+        self.assertEqual(urlopen.call_count, 1)
+
+    def test_rejects_answer_that_is_not_json(self, urlopen, sleep):
+        urlopen.return_value = fake_response("Sure! Here are your filters")
+        with self.assertRaises(parser.AIServiceError):
+            parser.request_filters("thai")
+
+    def test_needs_api_key(self, urlopen, sleep):
+        with patch.dict(os.environ, {"GROQ_API_KEY": ""}):
+            with self.assertRaises(parser.AIServiceError):
+                parser.request_filters("thai")
+        urlopen.assert_not_called()
+
+
+class TestSearchArgs(unittest.TestCase):
+    def test_filters_become_find_recipes_arguments(self):
+        self.assertEqual(
+            parser.to_search_args(SAMPLE),
+            {"diets": ["Vegan"], "allergens": ["peanut"], "keywords": ["< 30 Mins"]},
+        )
