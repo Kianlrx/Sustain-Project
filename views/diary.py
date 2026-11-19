@@ -24,8 +24,8 @@ DIARY_CARD_SHADOWS = """
         color: #f8fafc;
     }
     .block-container {
-        max-width: 1020px;
-        padding: 2rem 1.5rem 3rem;
+        max-width: none;
+        padding: 2rem clamp(1rem, 3vw, 2.5rem) 3rem;
     }
     .st-key-diary_summary_card {
         padding: 1rem 1.25rem;

@@ -41,8 +41,6 @@ DASHBOARD_CSS = """
 <style>
     [data-testid="stAppViewContainer"] { background:#0e1117; color:#e2e8f0; }
     [data-testid="stHeader"] { background:rgba(14,17,23,.94); }
-    [data-testid="stSidebar"] { background:#11151e; }
-    [data-testid="stSidebar"] { width:232px !important; min-width:232px !important; }
     .block-container { max-width:1080px; padding:2rem clamp(1rem,2vw,1.5rem) 3rem; }
     .st-key-dashboard_edit button {
         min-height:40px; border:1px solid #343b4e; border-radius:8px;
@@ -187,7 +185,6 @@ DASHBOARD_CSS = """
         .sd-budget-strip { grid-template-columns:repeat(2,minmax(0,1fr)); }
     }
     @media(max-width:430px) {
-        [data-testid="stSidebar"] { width:min(80vw,232px) !important; min-width:min(80vw,232px) !important; }
         .sd-profile-grid,.sd-budget-strip { grid-template-columns:1fr; }
     }
 </style>

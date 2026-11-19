@@ -89,6 +89,12 @@ def render_login_page():
 
 
 def render_logout_button():
-    if st.sidebar.button("Log out"):
+    # Rendered by app.py inside the sidebar footer container, so use st.button
+    # (st.sidebar.button would ignore that container).
+    if st.button(
+        "Log out",
+        key="sidebar_logout_button",
+        use_container_width=True,
+    ):
         st.session_state.user = None
         st.rerun()
