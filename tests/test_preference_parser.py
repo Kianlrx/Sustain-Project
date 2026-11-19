@@ -96,3 +96,60 @@ class TestSearchArgs(unittest.TestCase):
             parser.to_search_args(SAMPLE),
             {"diets": ["Vegan"], "allergens": ["peanut"], "keywords": ["< 30 Mins"]},
         )
+
+
+
+@patch.dict(os.environ, {"GROQ_API_KEY": "test-key"})
+@patch("services.preference_parser.time.sleep")
+@patch("services.preference_parser.urlopen")
+class TestFallbacks(unittest.TestCase):
+    def test_empty_or_symbol_only_prompts_skip_the_model(self, urlopen, sleep):
+        for prompt in ["", "   ", "???", None]:
+            self.assertEqual(parser.parse_preferences(prompt, "Lunch"), parser.default_filters("Lunch"))
+        urlopen.assert_not_called()
+
+    def test_api_failure_returns_defaults(self, urlopen, sleep):
+        urlopen.side_effect = TimeoutError()
+        with self.assertLogs("services.preference_parser", "WARNING"):
+            filters = parser.parse_preferences("pasta please", "Dinner")
+        self.assertEqual(filters, parser.default_filters("Dinner"))
+
+    def test_invalid_json_returns_defaults(self, urlopen, sleep):
+        urlopen.return_value = fake_response("{not json")
+        with self.assertLogs("services.preference_parser", "WARNING"):
+            self.assertEqual(parser.parse_preferences("pasta"), parser.default_filters())
+
+    def test_gibberish_gives_broad_filters(self, urlopen, sleep):
+        # the model is told to return nothing when the text is not about food
+        urlopen.return_value = fake_response(json.dumps(parser.default_filters()))
+        self.assertEqual(parser.parse_preferences("asdkjh qwe", "Snack"), parser.default_filters("Snack"))
+
+    def test_valid_answer_is_kept(self, urlopen, sleep):
+        urlopen.return_value = fake_response(json.dumps(SAMPLE))
+        self.assertEqual(parser.parse_preferences("spicy vegan thai dinner, no peanuts"), SAMPLE)
+
+
+class TestCleanFilters(unittest.TestCase):
+    def test_wrong_values_are_replaced(self):
+        raw = {
+            "cuisines": "italian", "flavors": ["Sweet", "sweet", 3],
+            "meal_category": "Brunch", "diets": ["Vegan", "Paleo"],
+            "max_cook_minutes": -5,
+        }
+        filters = parser.clean_filters(raw)
+        self.assertEqual(filters["cuisines"], [])
+        self.assertEqual(filters["flavors"], ["sweet"])
+        self.assertEqual(filters["meal_category"], "Any")
+        self.assertEqual(filters["diets"], ["Vegan"])
+        self.assertIsNone(filters["max_cook_minutes"])
+
+    def test_spicy_but_no_spice(self):
+        raw = dict(SAMPLE, flavors=["spicy", "sour"], exclusions=["spice", "chili"])
+        self.assertEqual(parser.clean_filters(raw)["flavors"], ["sour"])
+
+    def test_meal_slot_is_used_when_no_meal_is_named(self):
+        self.assertEqual(parser.clean_filters(dict(SAMPLE, meal_category="Any"), "Lunch")["meal_category"], "Lunch")
+        self.assertEqual(parser.clean_filters(dict(SAMPLE, meal_category="Dessert"), "Lunch")["meal_category"], "Dessert")
+
+    def test_not_a_dict_gives_defaults(self):
+        self.assertEqual(parser.clean_filters(["thai"]), parser.default_filters())

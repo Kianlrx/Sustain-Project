@@ -2,7 +2,9 @@
 # using an AI model on Groq's free plan.
 
 import json
+import logging
 import os
+import re
 import time
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -54,12 +56,14 @@ TIMEOUT_SECONDS = 15
 MAX_ATTEMPTS = 3
 # The free plan allows 30 requests a minute, so leave at least 2 seconds between calls.
 SECONDS_BETWEEN_CALLS = 2
+MAX_PROMPT_LENGTH = 500
 
 # food.com keywords for cooking time, quickest first
 TIME_KEYWORDS = [(15, "< 15 Mins"), (30, "< 30 Mins"), (60, "< 60 Mins"), (240, "< 4 Hours")]
 
 _last_call = 0.0
 
+logger = logging.getLogger(__name__)
 
 class AIServiceError(Exception):
     """Raised when the AI model cannot give back usable filters."""
@@ -148,11 +152,70 @@ def to_search_args(filters):
     # so they stay in the filters for ranking results later
     return {"diets": filters["diets"], "allergens": filters["exclusions"], "keywords": keywords}
 
+def default_filters(meal_category="Any"):
+    """Broad filters used when the craving is unclear or the AI service fails."""
+    return {
+        "cuisines": [], "flavors": [], "preparation": [],
+        "meal_category": meal_category,
+        "diets": [], "exclusions": [],
+        "max_cook_minutes": None,
+    }
+
+
+def clean_filters(raw, meal_category="Any"):
+    """Keep only valid values from the model; anything missing or wrong uses the default."""
+    filters = default_filters(meal_category)
+    if not isinstance(raw, dict):
+        return filters
+
+    for key in ["cuisines", "flavors", "preparation", "exclusions"]:
+        filters[key] = _clean_words(raw.get(key))
+    if isinstance(raw.get("diets"), list):
+        filters["diets"] = [diet for diet in DIETS if diet in raw["diets"]]
+    if raw.get("meal_category") in MEAL_CATEGORIES and raw["meal_category"] != "Any":
+        filters["meal_category"] = raw["meal_category"]
+    minutes = raw.get("max_cook_minutes")
+    # True and False count as numbers in Python, so rule them out
+    if isinstance(minutes, int) and not isinstance(minutes, bool) and 0 < minutes <= 24 * 60:
+        filters["max_cook_minutes"] = minutes
+
+    # Something can't be wanted and avoided at once ("spicy but no spice"), so avoiding wins.
+    # Words are compared by their first 4 letters so "spicy" matches "spice".
+    avoided = [word[:4] for word in filters["exclusions"]]
+    filters["flavors"] = [flavor for flavor in filters["flavors"] if flavor[:4] not in avoided]
+    return filters
+
+
+def _clean_words(value):
+    # A list of short, lowercase words without repeats; anything else becomes an empty list.
+    if not isinstance(value, list):
+        return []
+    words = []
+    for item in value:
+        if isinstance(item, str):
+            word = item.strip().lower()
+            if word and len(word) <= 40 and word not in words:
+                words.append(word)
+    return words[:10]
+
+
+def parse_preferences(prompt, meal_slot=None):
+    """Turn a craving into filters. Always returns usable filters, even if the AI fails."""
+    meal_category = meal_slot if meal_slot in MEAL_CATEGORIES else "Any"
+    # Empty text, or text with no letters such as "???", has nothing to extract.
+    if not isinstance(prompt, str) or not re.search(r"[^\W\d_]", prompt):
+        return default_filters(meal_category)
+    try:
+        raw = request_filters(prompt.strip()[:MAX_PROMPT_LENGTH])
+    except AIServiceError as error:
+        logger.warning("Using default filters: %s", error)
+        return default_filters(meal_category)
+    return clean_filters(raw, meal_category)
 
 if __name__ == "__main__":
     # Try it from the project folder: python -m services.preference_parser "something quick and spicy"
     import sys
 
-    result = request_filters(" ".join(sys.argv[1:]))
+    result = parse_preferences(" ".join(sys.argv[1:]))
     print(result)
     print(to_search_args(result))
