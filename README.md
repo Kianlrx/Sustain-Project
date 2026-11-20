@@ -2,6 +2,10 @@
 
 Sustain is a Streamlit nutrition and food-diary app. Users can create an account, complete onboarding, review nutrition targets, log foods, and manage their profile.
 
+# Streamlit Website
+
+You can access the latest version of the Sustain App at ``https://sustain-app.streamlit.app/``
+
 ## Requirements
 
 - Python 3.10 or newer
