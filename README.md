@@ -1,6 +1,6 @@
 # Sustain
 
-Sustain is a Streamlit nutrition and food-diary app. Users can create an account, complete onboarding, review nutrition targets, log foods, and manage their profile.
+Sustain is a Streamlit-based nutrition and food diary application that helps users manage their dietary goals through personalized nutrition tracking and intelligent meal recommendations. Users can create an account, complete onboarding, review personalized nutrition targets, log foods, and manage their profile. The platform also retrieves recipes from a curated recipe dataset and filters them based on each user's nutritional requirements, including calorie and macronutrient targets (protein, carbohydrates, and fats) as well as dietary constraints such as vegetarian, vegan, gluten-free, or other preferences. When no suitable recipe is available in the dataset, an AI-powered agent automatically generates a custom recipe tailored to the user's specific nutritional goals and dietary needs.
 
 # Streamlit Website
 
