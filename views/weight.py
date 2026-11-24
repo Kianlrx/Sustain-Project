@@ -1,6 +1,8 @@
 # Weight page: log weigh-ins, see them on a chart against the expected curve.
 from datetime import date, timedelta
 from html import escape
+import sqlite3
+from time import time
 
 import altair as alt
 import pandas as pd
@@ -18,12 +20,16 @@ GREEN, RED, BLUE = "#34d399", "#ff4b4b", "#38bdf8"
 TREND_MIN_LOGS = 6
 TREND_MIN_NEIGHBOURS = 5
 TREND_SHARE = 0.05
+DOT_HIT_TARGET_SIZE = 300
 # The chart can never be zoomed in past this many days (or out past the logged dates).
 MIN_WINDOW_DAYS = 7
+CHART_EDGE_PADDING = timedelta(days=1)
+LINE_EDGE_GAP_FRACTION = 0.01
 RANGES ={"7D": 7, "1M": 31, "6M": 183, "1Y": 365, "All": None}
 
 WEIGHT_CSS = """
 <style>
+    .block-container { padding-top: 1.5rem !important; }
     .st-key-weight_form, .st-key-weight_history {
         padding: 1.1rem 1.25rem;
         border: 1px solid #262d3d;
@@ -43,6 +49,40 @@ WEIGHT_CSS = """
     .st-key-weight_history button:hover {
         background: rgba(255, 75, 75, .14);
         color: #ff4b4b;
+    }
+    .st-key-weight_history [class*="st-key-weight_edit_"] button:hover {
+        background: rgba(52, 211, 153, .14);
+        color: #34d399;
+    }
+    .st-key-weight_form { margin-bottom: 1.1rem; }
+    .st-key-weight_history { width: 100%; }
+    .wt-history-heading {
+        display:flex;
+        align-items:baseline;
+        gap:.65rem;
+        padding-bottom:.65rem;
+        margin-bottom:.85rem;
+        border-bottom:1px solid rgba(148,163,184,.18);
+    }
+    .wt-history-count { color:#94a3b8; font-size:.82rem; }
+    @keyframes wt-popup-expire {
+        0%, 94% { opacity:1; transform:translateY(0); }
+        100% { opacity:0; transform:translateY(-4px); visibility:hidden; }
+    }
+    .wt-success-popup {
+        width:max-content;
+        max-width:80vw;
+        margin:0 auto .45rem;
+        padding:.55rem .7rem;
+        border:1px solid rgba(52,211,153,.4);
+        border-radius:.5rem;
+        background:rgba(6,78,59,.9);
+        color:#d1fae5;
+        font-size:.78rem;
+        line-height:1.35;
+        text-align:center;
+        white-space:nowrap;
+        animation:wt-popup-expire 5s linear forwards;
     }
     .wt-head { display:flex; align-items:center; gap:.7rem; flex-wrap:wrap; }
     .wt-title { margin:0; font-size:1.9rem; font-weight:750; letter-spacing:-.02em; color:#f8fafc; }
@@ -80,6 +120,13 @@ WEIGHT_CSS = """
     .wt-dots { width:1.1rem; border-top:3px dotted; display:inline-block; }
     .wt-empty { padding:2.2rem 1rem; text-align:center; color:#94a3b8;
         border:1px dashed #262d3d; border-radius:14px; background:#161b24; }
+    .wt-estimates { display:grid; grid-template-columns:repeat(3,1fr); margin:1rem 0;
+        border-top:1px solid #262d3d; border-bottom:1px solid #262d3d; }
+    .wt-estimate { padding:.65rem .5rem; }
+    .wt-estimate + .wt-estimate { border-left:1px solid #262d3d; }
+    .wt-estimate-label { display:block; color:#94a3b8; font-size:.8rem; }
+    .wt-estimate-value { display:block; margin-top:.25rem; color:#f8fafc;
+        font-size:1.1rem; font-weight:800; font-variant-numeric:tabular-nums; }
 </style>
 """
 
@@ -144,6 +191,60 @@ def clamp_window(start, end, first, last):
     return start, end
 
 
+def _available_ranges(logged_days):
+    thresholds = {"1M": 7, "6M": 30, "1Y": 183}
+    return [
+        label
+        for label in RANGES
+        if label == "All"
+        or (label == "7D" and logged_days >= MIN_WINDOW_DAYS - 1)
+        or (label in thresholds and logged_days > thresholds[label])
+    ]
+
+
+def _line_window(data, value_column, line_start, line_end, stop_at_last_value=False):
+    """Extend a line close to the window edges, optionally stopping at its last value."""
+    if data.empty:
+        return data
+
+    values = data.set_index("date")[value_column].sort_index()
+    if stop_at_last_value:
+        line_end = min(line_end, values.index[-1])
+    if line_end < line_start:
+        return data.iloc[0:0]
+    dates = values.index.union(pd.DatetimeIndex([line_start, line_end]))
+    window = values.reindex(dates).interpolate(method="time")
+
+    if line_start < values.index[0]:
+        if len(values) > 1:
+            slope = (values.iloc[1] - values.iloc[0]) / (
+                values.index[1] - values.index[0]
+            ).total_seconds()
+            window.loc[line_start] = values.iloc[0] + slope * (
+                line_start - values.index[0]
+            ).total_seconds()
+        else:
+            window.loc[line_start] = values.iloc[0]
+    if line_end > values.index[-1]:
+        if len(values) > 1:
+            slope = (values.iloc[-1] - values.iloc[-2]) / (
+                values.index[-1] - values.index[-2]
+            ).total_seconds()
+            window.loc[line_end] = values.iloc[-1] + slope * (
+                line_end - values.index[-1]
+            ).total_seconds()
+        else:
+            window.loc[line_end] = values.iloc[-1]
+
+    return (
+        window.loc[line_start:line_end]
+        .dropna()
+        .rename(value_column)
+        .rename_axis("date")
+        .reset_index()
+    )
+
+
 def _weight_chart(entries, expected, unit, factor, start, end):
     """Altair chart of [start, end]: green log dots, red trend, blue dotted expected."""
     logs = pd.DataFrame(
@@ -161,19 +262,35 @@ def _weight_chart(entries, expected, unit, factor, start, end):
         }
     )
     start_ts, end_ts = pd.Timestamp(start), pd.Timestamp(end)
-    logs = logs[(logs["date"] >= start_ts) & (logs["date"] <= end_ts)]
-    plan = plan[(plan["date"] >= start_ts) & (plan["date"] <= end_ts)]
+    domain_start = start_ts - pd.Timedelta(CHART_EDGE_PADDING)
+    domain_end = end_ts + pd.Timedelta(CHART_EDGE_PADDING)
+    edge_gap = (domain_end - domain_start) * LINE_EDGE_GAP_FRACTION
+    line_start = domain_start + edge_gap
+    line_end = domain_end - edge_gap
+    trend = logs.set_index("date")["average"].sort_index()
+    average_logs = _line_window(
+        trend.rename_axis("date").reset_index(),
+        "average",
+        line_start,
+        line_end,
+        stop_at_last_value=True,
+    )
+    plan = _line_window(plan, "weight", line_start, line_end)
+    logs = logs[logs["date"].between(start_ts, end_ts)]
 
     x = alt.X(
         "date:T",
         title=None,
         scale=alt.Scale(
-            domain=[
-                (start_ts - pd.Timedelta(hours=10)).isoformat(),
-                (end_ts + pd.Timedelta(hours=10)).isoformat(),
-            ]
+            domain=[domain_start.isoformat(), domain_end.isoformat()]
         ),
-        axis=alt.Axis(format="%b %d", labelColor="#64748b", grid=False, domainColor="#262d3d"),
+        axis=alt.Axis(
+            format="%b %d",
+            tickCount={"interval": "day", "step": 1},
+            labelColor="#64748b",
+            grid=False,
+            domainColor="#262d3d",
+        ),
     )
     y = alt.Y(
         "weight:Q",
@@ -181,16 +298,16 @@ def _weight_chart(entries, expected, unit, factor, start, end):
         scale=alt.Scale(zero=False, nice=True, padding=12),
         axis=alt.Axis(labelColor="#64748b", titleColor="#94a3b8", gridColor="#1e2433", domain=False),
     )
-    hover = alt.selection_point(on="pointerover", nearest=True, fields=["date"], empty=False)
+    hover = alt.selection_point(on="pointerover", fields=["date"], empty=False)
 
     expected_line = (
         alt.Chart(plan)
-        .mark_line(color=BLUE, strokeWidth=2.6, strokeDash=[1, 7], strokeCap="round")
+        .mark_line(color=BLUE, strokeWidth=2.6, strokeDash=[1, 7], strokeCap="round", clip=True)
         .encode(x=x, y=y)
     )
     average_line = (
-        alt.Chart(logs)
-        .mark_line(color=RED, strokeWidth=2.4)
+        alt.Chart(average_logs)
+        .mark_line(color=RED, strokeWidth=2.4, clip=True)
         .encode(x=x, y=alt.Y("average:Q", scale=alt.Scale(zero=False, nice=True, padding=12)))
     )
     dots = (
@@ -200,6 +317,14 @@ def _weight_chart(entries, expected, unit, factor, start, end):
             x=x,
             y=y,
             size=alt.condition(hover, alt.value(190), alt.value(70)),
+        )
+    )
+    hover_targets = (
+        alt.Chart(logs)
+        .mark_circle(size=DOT_HIT_TARGET_SIZE, opacity=0.001)
+        .encode(
+            x=x,
+            y=y,
             tooltip=[
                 alt.Tooltip("date:T", title="Date", format="%a, %b %d, %Y"),
                 alt.Tooltip("weight:Q", title=f"Weight ({unit})", format=".1f"),
@@ -209,7 +334,7 @@ def _weight_chart(entries, expected, unit, factor, start, end):
         .add_params(hover)
     )
     return (
-        alt.layer(expected_line, average_line, dots)
+        alt.layer(expected_line, average_line, dots, hover_targets)
         .properties(height=340, background="#161b24")
         .configure_view(stroke=None)
     )
@@ -249,27 +374,177 @@ def render_weight_page():
 
     st.markdown(WEIGHT_CSS, unsafe_allow_html=True)
     st.markdown(
-        '<div class="wt-head"><h1 class="wt-title">Weight Logging</h1></div>'
-        '<p class="wt-sub">Log your weight and compare it with the expected '
-        "curve for your calorie target.</p>",
+        '<div class="wt-head"><h1 class="wt-title">Weight Logging</h1></div>',
         unsafe_allow_html=True,
     )
-    if message := st.session_state.pop("weight_message", None):
-        st.success(message)
-
     entries = db.get_weight_entries(user["id"])
     tdee = calculate_tdee(profile, macros=targets)
     goal_delta = targets["calories"] - tdee["tdee_kcal"]
 
+    with st.container(key="weight_form"):
+
+        default_kg = entries[-1]["weight_kg"] if entries else profile.get("weight_kg", 70.0)
+        with st.form("weight_log_form", border=False):
+            weight_col, date_col, note_col, submit_col = st.columns(
+                [1.1, 1.15, 3.2, 1], vertical_alignment="bottom"
+            )
+            weight = weight_col.number_input(
+                f"Body weight ({unit})",
+                min_value=20.0 * factor,
+                max_value=500.0 * factor,
+                value=round(default_kg * factor, 1),
+                step=0.1,
+                format="%.1f",
+            )
+            log_date = date_col.date_input("Date", value=date.today(), max_value=date.today())
+            note = note_col.text_input("Note (optional)", max_chars=60)
+            popup = st.session_state.get("weight_message")
+            if popup:
+                elapsed = time() - popup["created_at"]
+                if elapsed >= 5:
+                    st.session_state.pop("weight_message", None)
+                else:
+                    submit_col.markdown(
+                        f'<div class="wt-success-popup" role="status" '
+                        f'style="animation-delay:-{elapsed:.3f}s">'
+                        f'{escape(popup["text"])}</div>',
+                        unsafe_allow_html=True,
+                    )
+            if submit_col.form_submit_button(
+                "Log weight", type="primary", use_container_width=True
+            ):
+                db.save_weight_entry(
+                    user["id"], log_date.isoformat(), round(weight / factor, 2), note.strip()
+                )
+                st.session_state.weight_message = {
+                    "text": (
+                        f"Logged {weight:.1f} {unit} for "
+                        f"{log_date.strftime('%b %d, %Y')}."
+                    ),
+                    "created_at": time(),
+                }
+                st.rerun()
+
     if entries:
         first, latest = entries[0], entries[-1]
+        logged_days = (
+            date.fromisoformat(latest["log_date"])
+            - date.fromisoformat(first["log_date"])
+        ).days
         end_date = max(date.fromisoformat(latest["log_date"]), date.today())
         expected = expected_weights(
-            date.fromisoformat(first["log_date"]),
-            first["weight_kg"],
-            end_date,
-            goal_delta,
+            date.fromisoformat(first["log_date"]), first["weight_kg"], end_date, goal_delta
         )
+    else:
+        first = latest = None
+        logged_days = 0
+        end_date = date.today() + timedelta(weeks=24)
+        expected = expected_weights(
+            date.today(), profile["weight_kg"], end_date, goal_delta
+        )
+
+    with st.container(key="weight_chart"):
+        heading, ranges = st.columns([2, 3], vertical_alignment="center")
+        heading.markdown(
+            '<p class="wt-h">Weight Trajectory</p>'
+            "<br>Use the range buttons or slider to zoom.</p>",
+            unsafe_allow_html=True,
+        )
+        first_day = date.fromisoformat(expected[0]["d"])
+        last_day = date.fromisoformat(expected[-1]["d"])
+
+        available_ranges = _available_ranges(logged_days)
+        selected_range = st.session_state.get("weight_range", "All")
+        if selected_range not in available_ranges:
+            selected_range = "All"
+            st.session_state.pop("weight_window", None)
+        st.session_state.weight_range = selected_range
+        st.session_state.weight_range_allowed = selected_range
+
+        def pick_range():
+            range_label = st.session_state.weight_range or "All"
+            if range_label not in available_ranges:
+                st.session_state.weight_range = st.session_state.weight_range_allowed
+                return
+            st.session_state.weight_range_allowed = range_label
+            days = RANGES[range_label]
+            st.session_state.weight_window = (
+                (first_day if days is None else max(first_day, last_day - timedelta(days=days - 1))),
+                last_day,
+            )
+
+        disabled_range_positions = [
+            index + 1
+            for index, label in enumerate(RANGES)
+            if label not in available_ranges
+        ]
+        if disabled_range_positions:
+            selectors = ", ".join(
+                f'.st-key-weight_ranges [data-testid="stSegmentedControl"] '
+                f'button:nth-of-type({position})'
+                for position in disabled_range_positions
+            )
+            st.markdown(
+                f"<style>{selectors} {{ opacity:.38; cursor:not-allowed; "
+                "pointer-events:none; }</style>",
+                unsafe_allow_html=True,
+            )
+        with ranges:
+            st.container(key="weight_ranges").segmented_control(
+                "Range",
+                list(RANGES),
+                default="All",
+                key="weight_range",
+                on_change=pick_range,
+                label_visibility="collapsed",
+            )
+        if "weight_window" not in st.session_state:
+            pick_range()
+        st.session_state.weight_window = clamp_window(
+            *st.session_state.weight_window, first_day, last_day
+        )
+        if (last_day - first_day).days >= MIN_WINDOW_DAYS:
+            st.slider(
+                "Visible dates",
+                min_value=first_day,
+                max_value=last_day,
+                key="weight_window",
+                format="MMM D, YYYY",
+                label_visibility="collapsed",
+            )
+            window_start, window_end = clamp_window(
+                *st.session_state.weight_window, first_day, last_day
+            )
+        else:
+            window_start, window_end = first_day, last_day
+        st.markdown(
+            '<div class="wt-legend">'
+            f'<span><i class="wt-dot" style="background:{GREEN}"></i>Individual weight log</span>'
+            f'<span><i class="wt-bar" style="background:{RED}"></i>Average weight trend</span>'
+            f'<span><i class="wt-dots" style="border-color:{BLUE}"></i>Expected weight</span>'
+            "</div>",
+            unsafe_allow_html=True,
+        )
+        st.altair_chart(
+            _weight_chart(entries, expected, unit, factor, window_start, window_end),
+            use_container_width=True,
+            theme=None,
+        )
+        daily_deficit = max(-goal_delta, 0)
+        estimates = "".join(
+            '<div class="wt-estimate">'
+            f'<span class="wt-estimate-label">{week}-week estimate</span>'
+            f'<span class="wt-estimate-value">'
+            f'{_projected_weight(profile["weight_kg"], daily_deficit, week) * factor:.1f} '
+            f'{unit}</span></div>'
+            for week in (4, 12, 24)
+        )
+        st.markdown(
+            f'<div class="wt-estimates">{estimates}</div>',
+            unsafe_allow_html=True,
+        )
+
+    if entries:
         expected_by_date = {point["d"]: point["kg"] for point in expected}
         expected_latest = expected_by_date[latest["log_date"]]
 
@@ -308,146 +583,102 @@ def render_weight_page():
         )
         st.markdown(f'<div class="wt-kpis">{cards}</div>', unsafe_allow_html=True)
 
-    if len(entries) >= 2:
-        with st.container(key="weight_chart"):
-            heading, ranges = st.columns([2, 3], vertical_alignment="center")
-            heading.markdown(
-                '<p class="wt-h">Weight Trajectory</p>'
-                '<p class="wt-muted">Hover a green dot for its date and weight.'
-                "<br>Use the range buttons or slider to zoom.</p>",
+    with st.container(key="weight_history"):
+        st.markdown(
+            '<div class="wt-history-heading">'
+            '<p class="wt-h">History</p>'
+            f'<span class="wt-history-count">{len(entries)} logged weigh-ins</span>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+        previous = {
+            entry["id"]: entries[index - 1]["weight_kg"] if index else None
+            for index, entry in enumerate(entries)
+        }
+        for entry in reversed(entries):
+            date_col, weight_col, change_col, note_col, _, edit_col, delete_col = st.columns(
+                [1.25, 0.9, 0.85, 0.65, 6.0, 0.55, 0.55],
+                vertical_alignment="center",
+            )
+            display_date = date.fromisoformat(entry["log_date"]).strftime("%b %d, %Y").replace(
+                " 0", " "
+            )
+            date_col.markdown(f"**{display_date}**")
+            weight_col.markdown(
+                f'<span style="color:#ff4b4b">●</span> {show(entry["weight_kg"])}',
                 unsafe_allow_html=True,
             )
-            first_day = date.fromisoformat(entries[0]["log_date"])
-            last_day = max(date.fromisoformat(entries[-1]["log_date"]), date.today())
-
-            def pick_range():
-                days = RANGES[st.session_state.weight_range or "All"]
-                st.session_state.weight_window = (
-                    (first_day if days is None else max(first_day, last_day - timedelta(days=days - 1))),
-                    last_day,
-                )
-
-            ranges.segmented_control(
-                "Range",
-                list(RANGES),
-                default="All",
-                key="weight_range",
-                on_change=pick_range,
-                label_visibility="collapsed",
-            )
-            if "weight_window" not in st.session_state:
-                pick_range()
-            # Re-clamp every run: the slider can't leave the logged dates, and the
-            # window can't shrink below MIN_WINDOW_DAYS.
-            st.session_state.weight_window = clamp_window(
-                *st.session_state.weight_window, first_day, last_day
-            )
-            if (last_day - first_day).days >= MIN_WINDOW_DAYS:
-                st.slider(
-                    "Visible dates",
-                    min_value=first_day,
-                    max_value=last_day,
-                    key="weight_window",
-                    format="MMM D, YYYY",
-                    label_visibility="collapsed",
-                )
-                window_start, window_end = clamp_window(
-                    *st.session_state.weight_window, first_day, last_day
-                )
+            before = previous[entry["id"]]
+            if before is None:
+                change_col.caption("—")
             else:
-                window_start, window_end = first_day, last_day
-            st.markdown(
-                '<div class="wt-legend">'
-                f'<span><i class="wt-dot" style="background:{GREEN}"></i>Individual weight log</span>'
-                f'<span><i class="wt-bar" style="background:{RED}"></i>Average weight trend</span>'
-                f'<span><i class="wt-dots" style="border-color:{BLUE}"></i>Expected weight</span>'
-                "</div>",
-                unsafe_allow_html=True,
-            )
-            st.altair_chart(
-                _weight_chart(entries, expected, unit, factor, window_start, window_end),
-                use_container_width=True,
-                theme=None,
-            )
-    elif entries:
-        st.markdown(
-            '<div class="wt-empty">Log at least one more weigh-in on a different '
-            "day to see your chart.</div>",
-            unsafe_allow_html=True,
-        )
-    else:
-        st.markdown(
-            '<div class="wt-empty">No weigh-ins yet. Log your first one below to '
-            "start your chart.</div>",
-            unsafe_allow_html=True,
-        )
-
-    form_col, history_col = st.columns([1, 1.8], gap="medium")
-    with form_col:
-        with st.container(key="weight_form"):
-            st.markdown(
-                '<p class="wt-h">Quick Weigh-In</p>'
-                '<p class="wt-muted">One weigh-in per day. Logging the same day again '
-                "replaces it.</p>",
-                unsafe_allow_html=True,
-            )
-            default_kg = entries[-1]["weight_kg"] if entries else profile.get("weight_kg", 70.0)
-            with st.form("weight_log_form", border=False):
-                weight = st.number_input(
-                    f"Body weight ({unit})",
-                    min_value=20.0 * factor,
-                    max_value=500.0 * factor,
-                    value=round(default_kg * factor, 1),
-                    step=0.1,
-                    format="%.1f",
-                )
-                log_date = st.date_input("Date", value=date.today(), max_value=date.today())
-                note = st.text_input("Note (optional)", max_chars=60)
-                if st.form_submit_button("Log weight", type="primary", use_container_width=True):
-                    db.save_weight_entry(
-                        user["id"], log_date.isoformat(), round(weight / factor, 2), note.strip()
-                    )
-                    st.session_state.weight_message = (
-                        f"Logged {weight:.1f} {unit} for {log_date.strftime('%b %d, %Y')}."
-                    )
-                    st.rerun()
-
-    with history_col:
-        with st.container(key="weight_history"):
-            st.markdown(
-                '<p class="wt-h">Weigh-In History</p>'
-                f'<p class="wt-muted">Latest {min(len(entries), 12)} of {len(entries)} logs</p>',
-                unsafe_allow_html=True,
-            )
-            if not entries:
-                st.caption("Nothing logged yet.")
-            previous = {
-                entry["id"]: entries[index - 1]["weight_kg"] if index else None
-                for index, entry in enumerate(entries)
-            }
-            for entry in reversed(entries[-12:]):
-                date_col, weight_col, change_col, note_col, delete_col = st.columns(
-                    [2.2, 1.3, 1.2, 2.4, 0.6], vertical_alignment="center"
-                )
-                date_col.markdown(f"**{_long_date(entry['log_date'])}**")
-                weight_col.markdown(
-                    f'<span style="color:#34d399">●</span> {show(entry["weight_kg"])}',
+                diff = entry["weight_kg"] - before
+                color = "#34d399" if diff < 0 else "#fbbf24" if diff > 0 else "#94a3b8"
+                change_col.markdown(
+                    f'<span style="color:{color}">{show(diff, signed=True)}</span>',
                     unsafe_allow_html=True,
                 )
-                before = previous[entry["id"]]
-                if before is None:
-                    change_col.caption("—")
-                else:
-                    diff = entry["weight_kg"] - before
-                    color = "#34d399" if diff < 0 else "#fbbf24" if diff > 0 else "#94a3b8"
-                    change_col.markdown(
-                        f'<span style="color:{color}">{show(diff, signed=True)}</span>',
-                        unsafe_allow_html=True,
+            note_col.caption(escape(entry["note"]) if entry["note"] else "—")
+            if edit_col.button(
+                "", icon=":material/edit:", key=f"weight_edit_{entry['id']}"
+            ):
+                st.session_state.weight_edit_id = entry["id"]
+                for field in ("date", "value", "note"):
+                    st.session_state.pop(f"weight_edit_{field}_{entry['id']}", None)
+                st.rerun()
+            if delete_col.button(
+                "", icon=":material/close:", key=f"weight_delete_{entry['id']}",
+            ):
+                db.delete_weight_entry(user["id"], entry["id"])
+                if st.session_state.get("weight_edit_id") == entry["id"]:
+                    st.session_state.pop("weight_edit_id", None)
+                st.rerun()
+            if st.session_state.get("weight_edit_id") == entry["id"]:
+                with st.form(f"weight_edit_form_{entry['id']}", border=False):
+                    edit_date_col, edit_weight_col, edit_note_col = st.columns(
+                        [1.2, 1.1, 3.2], vertical_alignment="bottom"
                     )
-                note_col.caption(escape(entry["note"]) if entry["note"] else "—")
-                if delete_col.button(
-                    "", icon=":material/close:", key=f"weight_delete_{entry['id']}",
-                    help="Delete this weigh-in",
-                ):
-                    db.delete_weight_entry(user["id"], entry["id"])
-                    st.rerun()
+                    edit_date = edit_date_col.date_input(
+                        "Date",
+                        value=date.fromisoformat(entry["log_date"]),
+                        max_value=date.today(),
+                        key=f"weight_edit_date_{entry['id']}",
+                    )
+                    edit_weight = edit_weight_col.number_input(
+                        f"Body weight ({unit})",
+                        min_value=20.0 * factor,
+                        max_value=500.0 * factor,
+                        value=round(entry["weight_kg"] * factor, 1),
+                        step=0.1,
+                        format="%.1f",
+                        key=f"weight_edit_value_{entry['id']}",
+                    )
+                    edit_note = edit_note_col.text_input(
+                        "Note (optional)",
+                        value=entry["note"],
+                        max_chars=60,
+                        key=f"weight_edit_note_{entry['id']}",
+                    )
+                    save_col, cancel_col = st.columns([1, 1])
+                    save_edit = save_col.form_submit_button("Save")
+                    cancel_edit = cancel_col.form_submit_button("Cancel")
+                    if save_edit:
+                        try:
+                            db.update_weight_entry(
+                                user["id"],
+                                entry["id"],
+                                edit_date.isoformat(),
+                                round(edit_weight / factor, 2),
+                                edit_note.strip(),
+                            )
+                        except sqlite3.IntegrityError:
+                            st.error(
+                                "Another weigh-in is already logged for that date. "
+                                "Choose a different date."
+                            )
+                        else:
+                            st.session_state.pop("weight_edit_id", None)
+                            st.rerun()
+                    elif cancel_edit:
+                        st.session_state.pop("weight_edit_id", None)
+                        st.rerun()

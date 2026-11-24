@@ -428,7 +428,10 @@ def _trajectory_chart(
     """
 
 
-def _projection_markup(profile, goal_delta, metric="Weight", calorie_target=0):
+def _projection_markup(
+    profile, goal_delta, metric="Weight", calorie_target=0,
+    stats_below_chart=False, estimate_weeks=(1, 12, 24),
+):
     weight = profile.get("weight_kg")
     if weight is None:
         return '<div class="sd-muted">Add a current weight in Settings to show a trend estimate.</div>'
@@ -436,9 +439,11 @@ def _projection_markup(profile, goal_delta, metric="Weight", calorie_target=0):
     factor = 2.2046226218 if measurement_units == "Imperial" else 1
     unit = "lb" if measurement_units == "Imperial" else "kg"
     daily_deficit = max(-goal_delta, 0)
-    week_1 = _projected_weight(weight, daily_deficit, 1) * factor
-    week_12 = _projected_weight(weight, daily_deficit, 12) * factor
-    week_24 = _projected_weight(weight, daily_deficit, 24) * factor
+    estimates = {
+        week: _projected_weight(weight, daily_deficit, week) * factor
+        for week in estimate_weeks
+    }
+    week_1 = estimates.get(1, estimates[estimate_weeks[0]])
     weekly_change = week_1 - weight * factor
     weekly_change_text = f"{weekly_change:+.1f} {unit}"
     explanation = (
@@ -461,17 +466,15 @@ def _projection_markup(profile, goal_delta, metric="Weight", calorie_target=0):
         """
         weekly_change_label = f"Expected weight change next week: {weekly_change_text}"
     else:
-        stats = f"""
-          <div class="sd-stat"><span class="sd-stat-label">1-week estimate</span>
-            <span class="sd-stat-value">{week_1:.1f} {unit}</span></div>
-          <div class="sd-stat"><span class="sd-stat-label">12-week estimate</span>
-            <span class="sd-stat-value" style="color:#34d399">{week_12:.1f} {unit}</span></div>
-          <div class="sd-stat"><span class="sd-stat-label">24-week estimate</span>
-            <span class="sd-stat-value" style="color:#34d399">{week_24:.1f} {unit}</span></div>
-        """
+        stats = "".join(
+            f'<div class="sd-stat"><span class="sd-stat-label">{week}-week estimate</span>'
+            '<span class="sd-stat-value">'
+            f'{estimates[week]:.1f} {unit}</span></div>'
+            for week in estimate_weeks
+        )
         weekly_change_label = f"Expected change next week: {weekly_change_text}"
-    return f"""
-        <div class="sd-stats">{stats}</div>
+    stats_markup = f'<div class="sd-stats">{stats}</div>'
+    chart_markup = f"""
         <div class="sd-chart">
           {_trajectory_chart(
               weight, daily_deficit, measurement_units, metric, calorie_target
@@ -484,6 +487,11 @@ def _projection_markup(profile, goal_delta, metric="Weight", calorie_target=0):
           <div class="sd-chart-explanation">{explanation}</div>
         </div>
     """
+    return (
+        f"{chart_markup}{stats_markup}"
+        if stats_below_chart
+        else f"{stats_markup}{chart_markup}"
+    )
 
 
 def _strategy_markup(profile, targets, tdee, goal_delta):

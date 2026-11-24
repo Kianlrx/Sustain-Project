@@ -356,9 +356,9 @@ else:
             st.session_state["main_navigation"] = st.session_state.pop(
                 "navigation_target"
             )
-        st.session_state.setdefault("main_navigation", "Dashboard")
+        st.session_state.setdefault("main_navigation", "Diary")
         if st.session_state.main_navigation not in NAV_KEYS:
-            st.session_state.main_navigation = "Dashboard"
+            st.session_state.main_navigation = "Diary"
         render_sidebar()
         page = st.session_state.main_navigation
         if page == "Dashboard":

@@ -17,7 +17,7 @@ You can access the latest version of the Sustain App at ``https://sustain-app.st
 Open a terminal in the project folder and create a virtual environment:
 
 ```powershell
-py -m venv .venv
+python -m venv .venv
 ```
 
 Activate it in PowerShell:
