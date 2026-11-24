@@ -251,6 +251,13 @@ def save_weight_entry(user_id, log_date, weight_kg, note=""):
             "DO UPDATE SET weight_kg = excluded.weight_kg, note = excluded.note",
             (user_id, log_date, weight_kg, note),
         )
+        latest = conn.execute(
+            "SELECT weight_kg FROM weight_log "
+            "WHERE user_id = ? ORDER BY log_date DESC LIMIT 1",
+            (user_id,),
+        ).fetchone()
+        if latest:
+            _update_profile_weight(conn, user_id, float(latest[0]))
 
 
 def delete_weight_entry(user_id, entry_id):
@@ -259,6 +266,45 @@ def delete_weight_entry(user_id, entry_id):
             "DELETE FROM weight_log WHERE user_id = ? AND id = ?",
             (user_id, entry_id),
         )
+        latest = conn.execute(
+            "SELECT weight_kg FROM weight_log "
+            "WHERE user_id = ? ORDER BY log_date DESC LIMIT 1",
+            (user_id,),
+        ).fetchone()
+        if latest:
+            _update_profile_weight(conn, user_id, float(latest[0]))
+
+
+def update_weight_entry(user_id, entry_id, log_date, weight_kg, note=""):
+    """Update an existing weigh-in and keep profile weight aligned with the latest log."""
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE weight_log SET log_date = ?, weight_kg = ?, note = ? "
+            "WHERE user_id = ? AND id = ?",
+            (log_date, weight_kg, note, user_id, entry_id),
+        )
+        latest = conn.execute(
+            "SELECT weight_kg FROM weight_log "
+            "WHERE user_id = ? ORDER BY log_date DESC LIMIT 1",
+            (user_id,),
+        ).fetchone()
+        if latest:
+            _update_profile_weight(conn, user_id, float(latest[0]))
+
+
+def _update_profile_weight(conn, user_id, weight_kg):
+    """Keep the saved profile weight aligned with the latest weigh-in."""
+    row = conn.execute(
+        "SELECT profile_json FROM profiles WHERE user_id = ?", (user_id,)
+    ).fetchone()
+    if not row or not row[0]:
+        return
+    profile = json.loads(row[0])
+    profile["weight_kg"] = round(weight_kg, 2)
+    conn.execute(
+        "UPDATE profiles SET profile_json = ? WHERE user_id = ?",
+        (json.dumps(profile), user_id),
+    )
 
 
 def get_logged_foods(user_id, limit=30):

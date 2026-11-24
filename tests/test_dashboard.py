@@ -68,6 +68,19 @@ class WeightTrajectoryTests(unittest.TestCase):
         self.assertIn("Expected change next week:", markup)
         self.assertIn("lb", markup)
 
+    def test_weight_page_projection_can_place_four_twelve_and_twenty_four_week_estimates_below_chart(self):
+        markup = _projection_markup(
+            {"weight_kg": 75, "measurement_units": "Metric"},
+            -500,
+            stats_below_chart=True,
+            estimate_weeks=(4, 12, 24),
+        )
+        self.assertLess(markup.index('class="sd-chart"'), markup.index('class="sd-stats"'))
+        self.assertIn("4-week estimate", markup)
+        self.assertIn("12-week estimate", markup)
+        self.assertIn("24-week estimate", markup)
+        self.assertNotIn("1-week estimate", markup)
+
     def test_profile_summary_is_a_card_and_formats_imperial_measurements(self):
         markup = _profile_summary(
             {

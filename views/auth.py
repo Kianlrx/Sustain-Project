@@ -43,7 +43,7 @@ def render_login_page():
             )
             with title_logo_column:
                 st.image(
-                    Path(__file__).resolve().parents[1] / "assets" / "sustain_logo.png",
+                    Path(__file__).resolve().parents[1] / "assets" / "sustain_logo_svg.svg",
                     width=56,
                 )
             with title_text_column:
@@ -63,6 +63,8 @@ def render_login_page():
                 user = db.check_login(username, password)
                 if user:
                     st.session_state.user = user
+                    if user["onboarding_complete"]:
+                        st.session_state.main_navigation = "Diary"
                     st.rerun()
                 else:
                     st.error("Wrong username or password.")
@@ -83,6 +85,8 @@ def render_login_page():
                         st.error("Your account was created, but automatic sign-in failed. Please log in.")
                     else:
                         st.session_state.user = user
+                        if user["onboarding_complete"]:
+                            st.session_state.main_navigation = "Diary"
                         st.rerun()
                 else:
                     st.error("That username is taken.")
