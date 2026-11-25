@@ -3,3 +3,4 @@ kagglehub>=0.3
 pandas>=2.2
 pyarrow>=15
 scikit-learn>=1.4
+psycopg[binary]>=3.2,<4

@@ -1,7 +1,6 @@
 # Weight page: log weigh-ins, see them on a chart against the expected curve.
 from datetime import date, timedelta
 from html import escape
-import sqlite3
 from time import time
 
 import altair as alt
@@ -671,7 +670,7 @@ def render_weight_page():
                                 round(edit_weight / factor, 2),
                                 edit_note.strip(),
                             )
-                        except sqlite3.IntegrityError:
+                        except db.IntegrityError:
                             st.error(
                                 "Another weigh-in is already logged for that date. "
                                 "Choose a different date."

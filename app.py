@@ -336,7 +336,11 @@ def render_sidebar():
             render_logout_button()
 
 
-db.init_db()
+try:
+    db.init_db()
+except db.DatabaseConfigurationError as exc:
+    st.error(str(exc))
+    st.stop()
 # Hide Streamlit's "Press Enter to submit form" hint under inputs, on every form.
 st.markdown(
     '<style>[data-testid="InputInstructions"] { display: none; }</style>',
