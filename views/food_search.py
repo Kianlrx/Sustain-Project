@@ -3,6 +3,8 @@ from datetime import date
 import streamlit as st
 
 from services import db
+from services.food_amount import food_amount
+from services.food_autocomplete import food_autocomplete
 from services.usda import USDAError, normalize_food_query, search_foods
 from services.speech_input import speech_input
 
@@ -12,95 +14,104 @@ def _close_dialog():
 
 
 @st.dialog("Search Food", width="medium")
-def render_food_search_dialog(user_id):
-    st.write("Search foods from USDA FoodData Central.")
-    with st.form("usda_food_search_form"):
-        query = st.text_input(
-            "Food name",
-            placeholder="e.g. apple, chicken breast, Greek yogurt",
-            key="usda_food_query_input",
-        )
-        submitted = st.form_submit_button("Search")
+def render_food_search_dialog(user_id, log_date=None):
+    query, selected = food_autocomplete(user_id)
+    meal_slot = st.session_state.get("diary_dialog_meal_slot", "Snack")
+    scope = (user_id, log_date, meal_slot)
+    state = st.session_state.get("food_search_state")
+    if state is None or state["scope"] != scope:
+        state = {"scope": scope}
+        st.session_state.food_search_state = state
 
-    if submitted:
-        st.session_state.usda_food_results = None
-        st.session_state.usda_food_search_error = None
-        st.session_state.food_search_visible_count = 5
+    if selected is not None:
+        state.clear()
+        state.update(scope=scope, selected=selected)
+    elif query is not None:
+        state.clear()
+        state.update(scope=scope, visible_count=5)
         try:
             normalized_query = normalize_food_query(query)
-            st.session_state.usda_food_results = search_foods(normalized_query)
-            st.session_state.usda_food_last_query = normalized_query
-            st.session_state.usda_food_search_error = None
-        except ValueError as error:
-            st.session_state.usda_food_search_error = str(error)
-        except USDAError as error:
-            st.session_state.usda_food_search_error = str(error)
+            state["results"] = search_foods(normalized_query)
+            state["query"] = normalized_query
+        except (ValueError, USDAError) as error:
+            state["error"] = str(error)
 
-    if st.session_state.get("usda_food_search_error"):
-        st.error(st.session_state.usda_food_search_error)
+    if "error" in state:
+        st.error(state["error"])
+    if "selected" in state:
+        _render_food_result(user_id, state["selected"], meal_slot, log_date)
 
-    results = st.session_state.get("usda_food_results")
+    results = state.get("results")
     if results is not None:
         st.markdown("#### USDA Database Matches")
-        st.caption(f'Results for "{st.session_state.get("usda_food_last_query", "")}"')
+        st.caption(f'Results for "{state["query"]}"')
         if not results:
             st.info("No matching foods were found. Try a broader search.")
-        visible_count = st.session_state.get("food_search_visible_count", 5)
-        meal_slot = st.session_state.get("diary_dialog_meal_slot", "Snack")
+        visible_count = state["visible_count"]
         for food in results[:visible_count]:
-            _render_food_result(user_id, food, meal_slot)
+            _render_food_result(user_id, food, meal_slot, log_date)
         if len(results) > visible_count and st.button("Show more", key="show_more_food_results"):
-            st.session_state.food_search_visible_count = min(
-                visible_count + 5, len(results)
-            )
-            st.rerun()
+            state["visible_count"] = min(visible_count + 5, len(results))
+            st.rerun(scope="fragment")
 
     if st.button("Close", key="close_food_search_dialog"):
+        st.session_state.pop("food_search_state", None)
         _close_dialog()
 
 
-def _render_food_result(user_id, food, meal_slot):
+def _render_food_result(user_id, food, meal_slot, log_date=None):
+    food_id = food.get("id") or food["fdc_id"]
+    unit = food.get("quantity_unit", "g")
+    default_amount = food.get("default_amount", 100)
+    basis = food.get("basis_quantity", food.get("basis_grams"))
+    whole_grams = "default_amount" not in food
+    minimum = 1 if whole_grams else min(default_amount, 0.01)
+    maximum = max(default_amount, 2000)
+    nutrients = food["nutrients"]
+
     with st.container(border=True):
-        title, amount_col, action = st.columns([6, 1.2, 1.3])
-        title.markdown(f"**{food['description']}**")
-        if food["brand"]:
-            title.caption(food["brand"])
-        nutrients = food["nutrients"]
-        title.caption(
-            f"{nutrients['calories']:.0f} kcal · "
-            f"P {nutrients['protein_g']:.1f}g · "
-            f"C {nutrients['carbs_g']:.1f}g · "
-            f"F {nutrients['fat_g']:.1f}g "
-            f"per {food['basis_grams']:g}g"
+        result = food_amount(
+            key=f"food_amount_preview_{food_id}",
+            data={
+                "description": food["description"],
+                "brand": food["brand"],
+                "nutrients": nutrients,
+                "basis": basis,
+                "unit": unit,
+                "defaultAmount": default_amount,
+                "minimum": minimum,
+                "maximum": maximum,
+                "wholeGrams": whole_grams,
+            },
+            on_add_change=lambda: None,
         )
-        amount = amount_col.number_input(
-            "Amount (g)",
-            min_value=1,
-            max_value=2000,
-            value=100,
-            key=f"food_amount_{food['fdc_id']}",
-            label_visibility="collapsed",
+        amount = result.add
+        if amount is None:
+            return
+        if (
+            type(amount) not in (int, float)
+            or not minimum <= amount <= maximum
+            or (whole_grams and amount % 1)
+        ):
+            st.error("Enter a valid amount before adding this food.")
+            return
+
+        scale = amount / basis
+        scaled = {key: max(round(value * scale), 0) for key, value in nutrients.items()}
+        db.add_food_entry(
+            user_id,
+            log_date or date.today().isoformat(),
+            meal_slot,
+            food["description"],
+            scaled["calories"],
+            scaled["protein_g"],
+            scaled["carbs_g"],
+            scaled["fat_g"],
+            quantity=amount,
+            quantity_unit=unit,
         )
-        if action.button("＋ Add", key=f"add_food_{food['fdc_id']}"):
-            scale = amount / food["basis_grams"]
-            scaled = {
-                key: max(round(value * scale), 0)
-                for key, value in nutrients.items()
-            }
-            db.add_food_entry(
-                user_id,
-                date.today().isoformat(),
-                meal_slot,
-                food["description"],
-                scaled["calories"],
-                scaled["protein_g"],
-                scaled["carbs_g"],
-                scaled["fat_g"],
-            )
-            st.session_state.food_logged_message = (
-                f"Added {food['description']} ({amount} g) to {meal_slot}."
-            )
-            st.rerun()
+        st.session_state.pop("food_search_state", None)
+        st.rerun()
 
 
 @st.dialog("Tell us what you feel like", width="large")

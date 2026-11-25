@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import math
 import os
 import sqlite3
 from contextlib import contextmanager
@@ -108,6 +109,21 @@ def init_db():
             )
             """
         )
+        if DB_PATH is None:
+            columns = conn.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_schema = 'sustain' AND table_name = 'food_log'"
+            ).fetchall()
+        else:
+            columns = [(row[1],) for row in conn.execute("PRAGMA table_info(food_log)")]
+        existing = {column for (column,) in columns}
+        for column, definition in (
+            ("quantity", "DOUBLE PRECISION NOT NULL DEFAULT 1 CHECK (quantity > 0)"),
+            ("base_quantity", "DOUBLE PRECISION NOT NULL DEFAULT 1 CHECK (base_quantity > 0)"),
+            ("quantity_unit", "TEXT NOT NULL DEFAULT 'servings'"),
+        ):
+            if column not in existing:
+                conn.execute(f"ALTER TABLE food_log ADD COLUMN {column} {definition}")
         conn.execute(
             f"""
             CREATE TABLE IF NOT EXISTS weight_log (
@@ -244,27 +260,65 @@ def get_targets(user_id):
 
 
 # Food diary
+FOOD_NUTRIENTS = ("calories", "protein_g", "carbs_g", "fat_g")
+
+
+def _food_entry(row, fields):
+    entry = dict(zip(fields + FOOD_NUTRIENTS + ("quantity", "base_quantity", "quantity_unit"), row))
+    scale = entry["quantity"] / entry.pop("base_quantity")
+    for nutrient in FOOD_NUTRIENTS:
+        entry[nutrient] = round(entry[nutrient] * scale)
+    return entry
+
+
 def get_food_entries(user_id, log_date):
-    """All the food a user logs on a given day (log_date is "YYYY-MM-DD") as a list of dicts."""
+    """Food logged on the supplied ISO date, with nutrition scaled to the logged quantity."""
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT id, meal_slot, food_name, calories, protein_g, carbs_g, fat_g "
-            "FROM food_log WHERE user_id = ? AND log_date = ? ORDER BY id",
+            "SELECT id, meal_slot, food_name, calories, protein_g, carbs_g, fat_g, "
+            "quantity, base_quantity, quantity_unit FROM food_log "
+            "WHERE user_id = ? AND log_date = ? ORDER BY id",
             (user_id, log_date),
         ).fetchall()
-    # With the id, an entry can be edited or deleted later.
-    keys = ["id", "meal_slot", "food_name", "calories", "protein_g", "carbs_g", "fat_g"]
-    return [dict(zip(keys, row)) for row in rows]
+    return [_food_entry(row, ("id", "meal_slot", "food_name")) for row in rows]
 
 
+def _validate_food_quantity(quantity):
+    if not math.isfinite(quantity) or quantity <= 0:
+        raise ValueError("Quantity must be a positive number.")
 
-def add_food_entry(user_id, log_date, meal_slot, food_name, calories, protein_g, carbs_g, fat_g):
-    """Log one food into a meal slot (Breakfast, Lunch, Dinner or Snack)."""
+
+def add_food_entry(
+    user_id, log_date, meal_slot, food_name, calories, protein_g, carbs_g, fat_g,
+    *, quantity=1.0, quantity_unit="servings",
+):
+    """Log a food with nutrition totals for its starting quantity."""
+    _validate_food_quantity(quantity)
     with get_connection() as conn:
         conn.execute(
             "INSERT INTO food_log (user_id, log_date, meal_slot, food_name, "
-            "calories, protein_g, carbs_g, fat_g) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (user_id, log_date, meal_slot, food_name, calories, protein_g, carbs_g, fat_g),
+            "calories, protein_g, carbs_g, fat_g, quantity, base_quantity, quantity_unit) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (user_id, log_date, meal_slot, food_name, calories, protein_g, carbs_g, fat_g,
+             quantity, quantity, quantity_unit),
+        )
+
+
+def update_food_quantity(user_id, log_date, entry_id, quantity, *, meal_slot=None):
+    _validate_food_quantity(quantity)
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE food_log SET quantity = ?, meal_slot = COALESCE(?, meal_slot) "
+            "WHERE user_id = ? AND log_date = ? AND id = ?",
+            (quantity, meal_slot, user_id, log_date, entry_id),
+        )
+
+
+def delete_food_entry(user_id, log_date, entry_id):
+    with get_connection() as conn:
+        conn.execute(
+            "DELETE FROM food_log WHERE user_id = ? AND log_date = ? AND id = ?",
+            (user_id, log_date, entry_id),
         )
 
 
@@ -346,17 +400,20 @@ def _update_profile_weight(conn, user_id, weight_kg):
     )
 
 
-def get_logged_foods(user_id, limit=30):
-    """Distinct foods the user has logged before, newest first (used as 'Saved Foods')."""
+def get_logged_foods(user_id, limit=30, *, at_base_quantity=False):
+    """Distinct foods, newest first, with optional unscaled nutrition."""
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT food_name, calories, protein_g, carbs_g, fat_g FROM food_log "
+            "SELECT food_name, calories, protein_g, carbs_g, fat_g, "
+            "quantity, base_quantity, quantity_unit FROM food_log "
             "WHERE id IN (SELECT MAX(id) FROM food_log WHERE user_id = ? GROUP BY food_name) "
             "ORDER BY id DESC LIMIT ?",
             (user_id, limit),
         ).fetchall()
-    keys = ["food_name", "calories", "protein_g", "carbs_g", "fat_g"]
-    return [dict(zip(keys, row)) for row in rows]
+    if at_base_quantity:
+        fields = ("food_name",) + FOOD_NUTRIENTS + ("quantity", "base_quantity", "quantity_unit")
+        return [dict(zip(fields, row)) for row in rows]
+    return [_food_entry(row, ("food_name",)) for row in rows]
 
 
 def get_saved_recipes(user_id):

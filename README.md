@@ -60,6 +60,10 @@ To stop the app, press `Ctrl+C` in the terminal running Streamlit.
 
 ## USDA food search
 
+The diary suggests the user's recent foods and a bundled starter catalog while they type.
+The catalog uses per-100 g nutrition from the [USDA FoodData Central SR Legacy download](https://fdc.nal.usda.gov/download-datasets/).
+Suggestions run in the browser without a USDA API call. Press **Search** for a full USDA lookup.
+
 The Diary's **Search Food** action searches USDA FoodData Central. The app uses the USDA `DEMO_KEY` if no API key is configured; USDA may apply stricter rate limits to that key.
 
 For regular use, set your own key as the `USDA_API_KEY` environment variable before launching the app:
