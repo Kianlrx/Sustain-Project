@@ -32,11 +32,25 @@ If PowerShell blocks activation, use Command Prompt instead:
 .venv\Scripts\activate.bat
 ```
 
-Install the project dependencies and start Streamlit:
+Install the project dependencies:
 
 ```powershell
 python -m pip install -r requirements.txt
-$env:USDA_API_KEY = "PDC6KmT8nFtzmp8HjqTmRp8tJkJMGt9qdKfkC7HP"
+```
+
+Create a Supabase project or use an existing development project. In its dashboard, open **Connect**, choose **Session pooler** on port `5432`, and copy the PostgreSQL URI. Replace the entire password placeholder, including its brackets, and URL-encode any reserved characters in the password.
+
+Create `.streamlit/secrets.toml` in the project folder:
+
+```toml
+DATABASE_URL = "postgresql://postgres.PROJECT_REF:ENCODED_PASSWORD@POOLER_HOST:5432/postgres"
+```
+
+Keep the credentials private. Git ignores this file. You can also set `DATABASE_URL` as an environment variable, which takes precedence.
+
+Start Streamlit:
+
+```powershell
 python -m streamlit run app.py
 ```
 
@@ -59,8 +73,8 @@ Get an API key from the [USDA FoodData Central API](https://fdc.nal.usda.gov/api
 
 ## Data and features
 
-- The SQLite database (`sustain.db`) is created automatically in the current working directory when the app starts.
-- Keep using the project folder as the working directory so the database stays in a predictable location.
+- The app creates its tables in the `sustain` schema on Supabase when it starts.
+- Accounts, profiles, nutrition targets, food logs, weight logs, and saved recipes are stored in Supabase. The recipe search index is a separate local SQLite database.
 - `.gitignore` excludes the local database, Python cache files, virtual environment, and downloaded data.
 - The Diary supports manual food entry and USDA food lookup. Barcode scanning is not currently available.
 - Recipe craving input and saved-recipe storage are present, but recipe matching is not yet connected.
