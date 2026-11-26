@@ -4,6 +4,7 @@ import streamlit as st
 from models.profile import DIETARY_PREFERENCES
 from services import db, targets as targets_service
 from services.validation import (
+    TARGET_LIMITS,
     WEIGHT_MAX_KG,
     WEIGHT_MIN_KG,
     validate_manual_targets,
@@ -30,7 +31,14 @@ def render_settings_page():
     if profile is None:
         st.info("No saved profile yet. Complete the onboarding questionnaire first.")
     else:
-        _render_targets(user["id"])
+        try:
+            _render_targets(user["id"])
+        except ValueError as error:
+            # Keep the form below usable so the user can fix their details.
+            st.error(
+                "We couldn't work out your targets from your saved details "
+                f"({error}). Check your details below and save them again."
+            )
         _render_profile_form(user["id"], profile)
     _render_change_password(user["id"])
 
@@ -50,10 +58,18 @@ def _render_targets(user_id):
     _render_target_explanation(db.get_profile(user_id), manual)
 
     with st.expander("Fine-tune targets by hand"):
-        calories = st.number_input("Calories (kcal)", 1200, 6000, current["calories"], step=50)
-        protein = st.number_input("Protein (g)", 0, 400, current["protein_g"])
-        carbs = st.number_input("Carbs (g)", 0, 800, current["carbs_g"])
-        fat = st.number_input("Fat (g)", 0, 300, current["fat_g"])
+        # Start each box inside its limits: very large or very small users can
+        # have automatic targets outside them, which would crash the box.
+        calories, protein, carbs, fat = (
+            st.number_input(
+                f"{label} ({'kcal' if key == 'calories' else 'g'})",
+                low,
+                high,
+                min(high, max(low, int(current[key]))),
+                step=50 if key == "calories" else 1,
+            )
+            for key, (label, low, high) in TARGET_LIMITS.items()
+        )
         left, right = st.columns(2)
         if left.button("Save my targets"):
             chosen = {"calories": calories, "protein_g": protein, "carbs_g": carbs, "fat_g": fat}
@@ -193,21 +209,28 @@ def _render_profile_form(user_id, profile):
             index=occupation_index,
         )
         goal = st.selectbox(
-            "Primary Fitness Goal", FITNESS_GOALS, index=FITNESS_GOALS.index(profile["fitness_goal"])
+            "Primary Fitness Goal",
+            FITNESS_GOALS,
+            index=(
+                FITNESS_GOALS.index(profile.get("fitness_goal"))
+                if profile.get("fitness_goal") in FITNESS_GOALS
+                else 0
+            ),
         )
         measurement_units = st.selectbox(
             "Preferred measurement units",
             ["Metric", "Imperial"],
             index=0 if profile.get("measurement_units", "Metric") == "Metric" else 1,
         )
-        known = [a for a in profile["allergens"] if a in ALLERGENS]
-        others = [a for a in profile["allergens"] if a not in ALLERGENS]
+        saved_allergens = profile.get("allergens") or []
+        known = [a for a in saved_allergens if a in ALLERGENS]
+        others = [a for a in saved_allergens if a not in ALLERGENS]
         allergens = st.multiselect("Allergens and exclusions", ALLERGENS, default=known)
         other = st.text_input("Other exclusions (comma separated)", ", ".join(others))
         diets = st.multiselect(
             "Dietary preferences",
             DIETARY_PREFERENCES,
-            default=profile.get("diets", []),
+            default=[d for d in profile.get("diets") or [] if d in DIETARY_PREFERENCES],
         )
         if st.form_submit_button("Save changes"):
             errors = validate_profile_settings(

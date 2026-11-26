@@ -13,7 +13,7 @@ Required:
 Also required when body_fat_pct is absent:
     age: int
     height_cm: float
-    sex: "Male" or "Female"
+    sex: "Male" or "Female" (any other value uses the midpoint constant)
 
 Optional:
     body_fat_pct: float
@@ -113,6 +113,26 @@ PROTEIN_G_PER_KG_LEAN_MASS = 2.0
 FAT_KCAL_FRACTION = 0.25
 MIN_FAT_G_PER_KG_REFERENCE_WEIGHT = 0.6
 
+# Accepted body measurements. These are inclusive and wide enough to cover
+# every value the onboarding, settings and weight-log forms allow, so a value
+# a form accepts can never make the calculation fail afterwards.
+MIN_WEIGHT_KG = 20
+MAX_WEIGHT_KG = 500
+MIN_HEIGHT_CM = 100
+MAX_HEIGHT_CM = 250
+MIN_AGE = 15
+MAX_AGE = 120
+MIN_BODY_FAT_PCT = 3
+MAX_BODY_FAT_PCT = 80
+
+SEX_ADJUSTMENTS = {"Male": 5, "Female": -161}
+# Midpoint of the male and female constants, for any other answer.
+UNSPECIFIED_SEX_ADJUSTMENT = (5 + -161) / 2
+SEX_NOT_SPECIFIED_WARNING = (
+    "Sex was not given as Male or Female, so the BMR uses the midpoint of "
+    "the male and female formulas."
+)
+
 
 def _finite_float(value: Any, field_name: str) -> float:
     try:
@@ -131,29 +151,36 @@ def calculate_bmr(profile: Mapping[str, Any]) -> float:
     Mifflin-St Jeor is used. These are prediction equations, not measurements.
     """
     weight = _finite_float(profile["weight_kg"], "weight_kg")
-    if not 30 < weight < 500:
-        raise ValueError("weight_kg must be greater than 30kg and less than 500kg")
+    if not MIN_WEIGHT_KG <= weight <= MAX_WEIGHT_KG:
+        raise ValueError(
+            f"weight_kg must be between {MIN_WEIGHT_KG}kg and {MAX_WEIGHT_KG}kg"
+        )
 
     body_fat_pct = profile.get("body_fat_pct")
     if body_fat_pct is not None:
         body_fat_pct = _finite_float(body_fat_pct, "body_fat_pct")
-        if not 3 <= body_fat_pct < 80:
+        if not MIN_BODY_FAT_PCT <= body_fat_pct <= MAX_BODY_FAT_PCT:
             raise ValueError("body_fat_pct must be between 3% and 80%")
         lean_mass = weight * (1 - body_fat_pct / 100)
         return 370 + 21.6 * lean_mass
 
     age_value = _finite_float(profile["age"], "age")
-    if not age_value.is_integer() or not 15 < age_value <= 120:
-        raise ValueError("age must be a whole number between 16 and 120")
+    if not age_value.is_integer() or not MIN_AGE <= age_value <= MAX_AGE:
+        raise ValueError(f"age must be a whole number between {MIN_AGE} and {MAX_AGE}")
     age = int(age_value)
     height = _finite_float(profile["height_cm"], "height_cm")
-    if not 120 < height < 250:
-        raise ValueError("height_cm must be between 120cm and 250cm")
+    if not MIN_HEIGHT_CM <= height <= MAX_HEIGHT_CM:
+        raise ValueError(
+            f"height_cm must be between {MIN_HEIGHT_CM}cm and {MAX_HEIGHT_CM}cm"
+        )
 
-    sex_adjustment = {"Male": 5, "Female": -161}.get(profile.get("sex"))
-    if sex_adjustment is None:
-        raise ValueError("sex must be 'Male' or 'Female'")
-    return 10 * weight + 6.25 * height - 5 * age + sex_adjustment
+    return 10 * weight + 6.25 * height - 5 * age + _sex_adjustment(profile.get("sex"))
+
+
+def _sex_adjustment(sex: Any) -> float:
+    """Mifflin-St Jeor sex constant; the midpoint is used when sex is not
+    Male or Female, so no profile is rejected for its answer to this question."""
+    return SEX_ADJUSTMENTS.get(sex, UNSPECIFIED_SEX_ADJUSTMENT)
 
 
 def normalize_step_count(daily_steps: int | str | None) -> int:
@@ -401,7 +428,7 @@ def _protein_reference_weight(profile: Mapping[str, Any]) -> tuple[float, str]:
 
     if body_fat_pct is not None:
         body_fat = _finite_float(body_fat_pct, "body_fat_pct")
-        if not 3 <= body_fat < 80:
+        if not MIN_BODY_FAT_PCT <= body_fat <= MAX_BODY_FAT_PCT:
             raise ValueError("body_fat_pct must be between 3% and 80%")
         sex = profile.get("sex")
         high_body_fat_threshold = {"Male": 25.0, "Female": 35.0}.get(sex)
@@ -520,6 +547,8 @@ def calculate_tdee(
     base_expenditure = bmr + neat + eat
 
     warnings: list[str] = []
+    if profile.get("body_fat_pct") is None and profile.get("sex") not in SEX_ADJUSTMENTS:
+        warnings.append(SEX_NOT_SPECIFIED_WARNING)
     if occupation_hours is None:
         warnings.append(
             "Work hours were not provided; the legacy occupation multiplier "

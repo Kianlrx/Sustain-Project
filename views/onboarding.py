@@ -231,7 +231,9 @@ def _parse_measurement(
         measurement = _truncate_to_two_decimals(Decimal(value))
     except InvalidOperation as error:
         raise ValueError(f"{label} must be a number.") from error
-    if not minimum <= measurement <= maximum:
+    # Compare as decimals: as floats, 39.38 is slightly more than the typed
+    # "39.38", so the minimum shown on screen would be rejected.
+    if not Decimal(str(minimum)) <= measurement <= Decimal(str(maximum)):
         raise ValueError(f"{label} must be between {minimum} and {maximum}.")
 
     return float(measurement)
@@ -432,6 +434,13 @@ def _collect_profile(state):
         )
     )
     profile["measurement_units"] = units
+    try:
+        # Never save a profile that the target calculation can't handle,
+        # or every page after onboarding would fail for this user.
+        targets_service.calculate_targets(profile)
+    except ValueError as error:
+        errors[1].append(f"We couldn't calculate targets from these details: {error}")
+        return None, errors
     return profile, errors
 
 

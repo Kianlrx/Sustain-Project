@@ -9,6 +9,7 @@ import streamlit as st
 
 from services import db, targets as targets_service
 from services.tdee_engine import calculate_tdee
+from services.validation import WEIGHT_MAX_KG, WEIGHT_MIN_KG
 from views.dashboard import _projected_weight
 
 LB_PER_KG = 2.2046226218
@@ -389,8 +390,8 @@ def render_weight_page():
             )
             weight = weight_col.number_input(
                 f"Body weight ({unit})",
-                min_value=20.0 * factor,
-                max_value=500.0 * factor,
+                min_value=WEIGHT_MIN_KG * factor,
+                max_value=WEIGHT_MAX_KG * factor,
                 value=round(default_kg * factor, 1),
                 step=0.1,
                 format="%.1f",
@@ -645,8 +646,8 @@ def render_weight_page():
                     )
                     edit_weight = edit_weight_col.number_input(
                         f"Body weight ({unit})",
-                        min_value=20.0 * factor,
-                        max_value=500.0 * factor,
+                        min_value=WEIGHT_MIN_KG * factor,
+                        max_value=WEIGHT_MAX_KG * factor,
                         value=round(entry["weight_kg"] * factor, 1),
                         step=0.1,
                         format="%.1f",
