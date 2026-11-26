@@ -5,17 +5,21 @@
   <style>
     html, body { margin: 0; padding: 0; background: transparent; }
     button {
-      width: 42px; height: 40px; border: 1px solid #343b4e; border-radius: 9px;
-      background: #1e222d; color: #e2e8f0; font-size: 19px; cursor: pointer;
+      display: grid; place-items: center;
+      width: 40px; height: 40px; padding: 0; border: 1px solid rgba(138, 138, 144, .3);
+      border-radius: 8px; background: transparent; color: #8a8a90; cursor: pointer;
+      transition: background-color .15s cubic-bezier(.22, 1, .36, 1), color .15s cubic-bezier(.22, 1, .36, 1);
     }
-    button:hover { border-color: #ff6363; color: #fff; }
+    button:hover { background: rgba(138, 138, 144, .12); color: #dc2a46; }
+    button.listening { color: #dc2a46; }
     button:disabled { cursor: wait; opacity: .7; }
   </style>
 </head>
 <body>
-  <button type="button" aria-label="Speak your craving" title="Speak your craving">🎙</button>
+  <button type="button" aria-label="Speak your craving" title="Speak your craving"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><line x1="12" y1="18" x2="12" y2="22"/></svg></button>
   <script>
     const button = document.querySelector("button");
+    const micIcon = button.innerHTML;
     const send = (value) => window.parent.postMessage({
       isStreamlitMessage: true,
       type: "streamlit:setComponentValue",
@@ -34,7 +38,7 @@
       recognition.interimResults = false;
       recognition.maxAlternatives = 1;
       button.disabled = true;
-      button.textContent = "…";
+      button.classList.add("listening");
 
       recognition.onresult = (event) => {
         const transcript = event.results[0][0].transcript.trim();
@@ -48,7 +52,8 @@
       };
       recognition.onend = () => {
         button.disabled = false;
-        button.textContent = "🎙";
+        button.classList.remove("listening");
+        button.innerHTML = micIcon;
       };
       recognition.start();
     });
