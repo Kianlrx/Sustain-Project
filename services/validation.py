@@ -4,9 +4,12 @@
 
 import math
 
-# Settings: personal details
-WEIGHT_MIN_KG = 30.5  # the TDEE engine needs a weight above 30 kg
-WEIGHT_MAX_KG = 300.0
+from services.tdee_engine import MAX_WEIGHT_KG, MIN_WEIGHT_KG
+
+# Settings: personal details. Same range as the weight log, so any weight a
+# user has logged can be shown and saved here without being changed.
+WEIGHT_MIN_KG = float(MIN_WEIGHT_KG)
+WEIGHT_MAX_KG = float(MAX_WEIGHT_KG)
 SESSIONS_MIN = 0
 SESSIONS_MAX = 14
 DURATION_MIN = 10

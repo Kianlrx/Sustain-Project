@@ -73,8 +73,8 @@ class SettingsValidationTests(unittest.TestCase):
         self.assertIn("Session duration can't be negative.", settings_errors(session_duration=-30))
 
     def test_out_of_range_values_are_rejected(self):
-        self.assertTrue(settings_errors(weight_kg=30))  # engine needs more than 30 kg
-        self.assertTrue(settings_errors(weight_kg=301))
+        self.assertTrue(settings_errors(weight_kg=19.5))
+        self.assertTrue(settings_errors(weight_kg=500.5))
         self.assertTrue(settings_errors(sessions_per_week=15))
         self.assertTrue(settings_errors(session_duration=5))
         self.assertTrue(settings_errors(session_duration=241))
