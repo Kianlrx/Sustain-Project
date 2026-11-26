@@ -1,0 +1,15 @@
+# Settings for coverage.py, which measures how much of the code the tests run.
+[run]
+# Each folder is listed separately so files that no test imports
+source =
+    .
+    components
+    models
+    services
+    views
+omit =
+    tests/*
+
+[report]
+show_missing = True
+skip_empty = True

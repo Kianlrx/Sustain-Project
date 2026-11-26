@@ -1,0 +1,48 @@
+# Continuous integration: tests every new commit and measures how much code the tests cover.
+name: CI
+
+on:
+  push:              # every new commit, on any branch
+  workflow_dispatch: # adds a "Run workflow" button on the Actions tab
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash  # makes a step fail if a test command fails, even when its output goes through tee
+
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v6
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip  # reuses downloaded packages between runs
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt coverage
+
+      - name: Unit tests
+        run: |
+          mkdir -p reports
+          coverage run -m unittest discover -s tests -p "test_*.py" -v 2>&1 | tee reports/unit-tests.txt
+
+      - name: Coverage report
+        if: always()  # still report coverage when a test fails
+        run: |
+          coverage report | tee reports/coverage.txt
+          coverage html -d reports/coverage-html
+          coverage xml -o reports/coverage.xml
+
+      - name: Upload test and coverage reports
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: test-reports
+          path: reports/
