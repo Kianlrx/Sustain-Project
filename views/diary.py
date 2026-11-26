@@ -8,6 +8,7 @@ from html import escape
 import streamlit as st
 
 from services import db, targets as targets_service
+from services.validation import validate_food_entry
 from views.food_search import (
     render_find_recipe_dialog,
     render_food_search_dialog,
@@ -655,12 +656,10 @@ def _render_quick_log(user_id, meal_slot, log_date):
             "Fat (g)", value=None, step=1, key=f"{key_prefix}_fat"
         )
         if st.form_submit_button("Log food"):
-            numbers = [calories, protein, carbs, fat]
-            if not name.strip() or None in numbers:
-                st.error("Fill in every field.")
-            elif min(numbers) < 0:
-                st.error("Values can't be negative.")
-            else:
+            errors = validate_food_entry(name, calories, protein, carbs, fat)
+            for error in errors:
+                st.error(error)
+            if not errors:
                 db.add_food_entry(
                     user_id, log_date, slot, name.strip(),
                     calories, protein, carbs, fat,

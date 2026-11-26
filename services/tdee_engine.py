@@ -93,6 +93,10 @@ STEP_COUNT_ESTIMATES = {
 
 UNKNOWN_STEP_VALUES = {"unknown", "not sure", "prefer not to say", ""}
 DEFAULT_UNKNOWN_STEPS = 5_000
+WORK_STEPS_WARNING = (
+    "Work steps were not supplied. If daily steps include steps taken "
+    "at work, work activity and step NEAT may overlap."
+)
 STEP_KCAL_PER_KG_PER_STEP = 0.00035
 DEFAULT_OCCUPATION_DAYS_PER_WEEK = 5
 MAX_OCCUPATION_HOURS_PER_DAY = 16
@@ -540,10 +544,7 @@ def calculate_tdee(
         and occupation_hours > 0
         and occupational_steps is None
     ):
-        warnings.append(
-            "Work steps were not supplied. If daily steps include steps taken "
-            "at work, work activity and step NEAT may overlap."
-        )
+        warnings.append(WORK_STEPS_WARNING)
     if (
         occupation_hours is not None
         and occupation_hours > 0
