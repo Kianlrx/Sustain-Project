@@ -6,7 +6,6 @@ from services import db
 from services.food_amount import food_amount
 from services.food_autocomplete import food_autocomplete
 from services.usda import USDAError, normalize_food_query, search_foods
-from services.speech_input import speech_input
 
 
 def _close_dialog():
@@ -112,40 +111,6 @@ def _render_food_result(user_id, food, meal_slot, log_date=None):
         )
         st.session_state.pop("food_search_state", None)
         st.rerun()
-
-
-@st.dialog("Tell us what you feel like", width="large")
-def render_find_recipe_dialog():
-    st.write("Describe what sounds good. Recipe matching will be connected later.")
-    st.caption("Voice input uses your browser's speech recognition; availability and privacy depend on your browser.")
-    st.session_state.setdefault("recipe_craving_input", "")
-    text_col, mic_col = st.columns([8, 1])
-
-    with mic_col:
-        spoken = speech_input(key="recipe_craving_microphone")
-    if isinstance(spoken, dict) and spoken.get("error"):
-        st.warning(spoken["error"])
-    elif isinstance(spoken, str) and spoken.strip():
-        st.session_state.recipe_craving_input = spoken.strip()
-
-    with text_col:
-        st.text_input(
-            "Tell us what you feel like",
-            placeholder="Something warm, quick, and comforting...",
-            key="recipe_craving_input",
-            label_visibility="collapsed",
-        )
-
-    if st.button("Find recipes", key="submit_recipe_craving"):
-        craving = st.session_state.recipe_craving_input.strip()
-        if not craving:
-            st.error("Tell us what you feel like first.")
-        else:
-            st.session_state.recipe_search_prompt = craving
-            st.info("Recipe matching will be available when the recipe database is connected.")
-
-    if st.button("Close", key="close_recipe_dialog"):
-        _close_dialog()
 
 
 @st.dialog("Saved recipes", width="large")

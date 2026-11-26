@@ -2,15 +2,15 @@
 # Macro progress bar
 # Meal slots (Breakfast, Lunch, Dinner, Snacks)
 # Logged items.
-from datetime import date
+from datetime import date, datetime
 from html import escape
 
 import streamlit as st
 
-from services import db, targets as targets_service
+from services import db, recipe_finder, targets as targets_service
 from services.validation import validate_food_entry
+from views.find_recipe import render_find_recipe_page
 from views.food_search import (
-    render_find_recipe_dialog,
     render_food_search_dialog,
     render_saved_recipes_dialog,
 )
@@ -238,7 +238,7 @@ def render_diary_page():
     user = st.session_state.user
 
     if st.session_state.get("meal_request"):
-        _render_meal_request(st.session_state.meal_request)
+        render_find_recipe_page(st.session_state.meal_request)
         return
 
     st.html(DIARY_CARD_SHADOWS)
@@ -277,7 +277,10 @@ def render_diary_page():
     if active_dialog == "food":
         render_food_search_dialog(user["id"], log_date)
     elif active_dialog == "recipe":
-        render_find_recipe_dialog()
+        # "+ Add > Find a recipe" opens the Find a Recipe page for that meal
+        _open_find_recipe(
+            st.session_state.get("diary_dialog_meal_slot", "Snack"), targets, remaining, log_date,
+        )
     elif active_dialog == "saved":
         render_saved_recipes_dialog(user["id"])
     elif active_dialog == "saved_foods":
@@ -309,14 +312,11 @@ def render_diary_page():
             ):
                 if st.button(
                     "", key="diary_request_meal", icon=":material/chef_hat:",
-                    width=72, type="primary", help="Request a meal",
+                    width=72, type="primary", help="Find a recipe",
                 ):
-                    st.session_state.meal_request = {
-                        "slot": "Snack",
-                        "remaining": remaining,
-                        "log_date": log_date,
-                    }
-                    st.rerun()
+                    _open_find_recipe(
+                        recipe_finder.default_slot(datetime.now().hour), targets, remaining, log_date,
+                    )
             if st.button(
                 "", key="diary_expand_all",
                 icon=":material/arrow_upward:" if all_expanded else ":material/arrow_downward:",
@@ -657,14 +657,11 @@ def _render_quick_log(user_id, meal_slot, log_date):
                 st.rerun()
 
 
-def _render_meal_request(request):
-    slot = request["slot"]
-    st.title(f"{slot} request", anchor=False)
-    st.subheader(f"Remaining budget for {request.get('log_date', date.today().isoformat())}", anchor=False)
-    cols = st.columns(4)
-    for col, (label, key, unit) in zip(cols, NUTRIENTS):
-        col.metric(label, f"{request['remaining'][key]} {unit}")
-    st.info("Meal suggestions will appear here once the meal prompt is built.")
-    if st.button("Back to diary"):
-        del st.session_state.meal_request
-        st.rerun()
+def _open_find_recipe(slot, targets, remaining, log_date):
+    st.session_state.meal_request = {
+        "slot": slot,
+        "targets": targets,
+        "remaining": remaining,
+        "log_date": log_date,
+    }
+    st.rerun()
