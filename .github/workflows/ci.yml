@@ -33,6 +33,10 @@ jobs:
           mkdir -p reports
           coverage run -m unittest discover -s tests -p "test_*.py" -v 2>&1 | tee reports/unit-tests.txt
 
+      - name: Integration tests
+        run: |
+          coverage run -a -m unittest discover -s tests -p "integration_*.py" -v 2>&1 | tee reports/integration-tests.txt
+
       - name: Coverage report
         if: always()  # still report coverage when a test fails
         run: |
