@@ -141,7 +141,7 @@ def build_database():
 
 
 def find_recipes(calories=None, protein=None, carbs=None, fat=None, diets=(), allergens=(),
-                 keywords=(), skill="Advanced", limit=20, db_path=DB_PATH):
+                 keywords=(), skill="Advanced", limit=20, db_path=DB_PATH, cuisines=(), near_calories=None):
     conditions = []
     values = []
 
@@ -184,12 +184,27 @@ def find_recipes(calories=None, protein=None, carbs=None, fat=None, diets=(), al
         conditions.append("Keywords LIKE ?")
         values.append(f'%"{keyword}"%')
 
+    if cuisines:
+        # recipe must match at least one cuisine, as a food.com keyword (e.g. "Indian"),
+        # its category, or a word in its name
+        matches = []
+        for cuisine in cuisines:
+            matches.append("Keywords LIKE ? OR RecipeCategory LIKE ? OR Name LIKE ?")
+            values.extend([f'%"{cuisine}"%', cuisine, f"%{cuisine}%"])
+        conditions.append("(" + " OR ".join(f"({match})" for match in matches) + ")")
+
     # recipe must not be harder than the user's skill level
     conditions.append("SkillLevel <= ?")
     values.append(SKILL_LEVELS.index(skill) + 1)
 
-    # biggest meals that still fit the budget come first
-    sql = "SELECT * FROM recipes WHERE " + " AND ".join(conditions) + " ORDER BY Calories DESC LIMIT ?"
+    if near_calories is None:
+        # biggest meals that still fit the budget come first
+        order = "Calories DESC"
+    else:
+        # meals closest to the calorie budget come first
+        order = "ABS(Calories - ?)"
+        values.append(near_calories)
+    sql = "SELECT * FROM recipes WHERE " + " AND ".join(conditions) + f" ORDER BY {order} LIMIT ?"
     values.append(limit)
 
     conn = sqlite3.connect(db_path)
