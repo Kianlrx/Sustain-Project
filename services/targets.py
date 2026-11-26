@@ -39,3 +39,29 @@ def recalibrate(user_id):
     targets = calculate_targets(profile)
     db.save_targets(user_id, targets, manual=False)
     return targets
+
+
+def explain_targets(profile):
+    """Step-by-step numbers behind calculate_targets, for showing in the UI."""
+    components = calculate_tdee(profile)
+    bmr = components["bmr_kcal"]
+    tdee = components["tdee_kcal"]
+    goal = profile["fitness_goal"]
+    modifier = GOAL_MODIFIERS.get(goal, 1.0)
+    adjusted = round(tdee * modifier)
+    targets = calculate_targets(profile)
+    return {
+        "bmr_kcal": bmr,
+        "bmr_method": components["bmr_method"],
+        "neat_kcal": components["neat_kcal"],
+        "eat_kcal": components["eat_kcal"],
+        "tef_kcal": components["tef_kcal"],
+        "tdee_kcal": tdee,
+        "activity_multiplier": round(tdee / bmr, 2) if bmr else None,
+        "goal": goal,
+        "goal_modifier": modifier,
+        "goal_adjusted_kcal": adjusted,
+        "calorie_floor_applied": adjusted < CALORIE_FLOOR,
+        "calorie_floor": CALORIE_FLOOR,
+        "targets": targets,
+    }

@@ -3,11 +3,18 @@ import streamlit as st
 
 from models.profile import DIETARY_PREFERENCES
 from services import db, targets as targets_service
+from services.validation import (
+    WEIGHT_MAX_KG,
+    WEIGHT_MIN_KG,
+    validate_manual_targets,
+    validate_profile_settings,
+)
 from services.tdee_engine import (
     DEFAULT_OCCUPATION_DAYS_PER_WEEK,
     DEFAULT_OCCUPATION_HOURS_PER_WORKDAY,
     OCCUPATION_METS,
     TRAINING_TYPE_METS,
+    WORK_STEPS_WARNING,
     calculate_tdee,
 )
 
@@ -40,44 +47,7 @@ def _render_targets(user_id):
     cols[2].metric("Carbs", f"{current['carbs_g']} g")
     cols[3].metric("Fat", f"{current['fat_g']} g")
     st.caption("Set by you." if manual else "Calculated from your profile. Not medical advice.")
-    components = calculate_tdee(db.get_profile(user_id))
-    st.subheader("Estimated TDEE breakdown")
-    component_cols = st.columns(7)
-    for column, label, key in zip(
-        component_cols,
-        (
-            "BMR",
-            "Work NEAT",
-            "Step NEAT",
-            "Total NEAT",
-            "EAT",
-            "TEF",
-            "Maintenance TDEE",
-        ),
-        (
-            "bmr_kcal",
-            "occupation_non_step_neat_kcal",
-            "step_neat_kcal",
-            "neat_kcal",
-            "eat_kcal",
-            "tef_kcal",
-            "tdee_kcal",
-        ),
-    ):
-        column.metric(label, f"{components[key]} kcal")
-    st.caption(
-        "BMR uses body-fat % when provided; otherwise Mifflin-St Jeor. "
-        "Occupational NEAT is based on work MET and time; step NEAT excludes "
-        "reported work and exercise steps. "
-        "EAT is the net-MET exercise estimate averaged over seven days. "
-        "Maintenance TDEE uses maintenance macros for TEF; your calorie goal "
-        "above may be adjusted for your selected goal. "
-        f"The estimate used {components['step_count_used']:,} "
-        "steps shown are the representative count used for your selected step range. "
-        "Calories are estimates and may overlap if work steps are not reported."
-    )
-    for warning in components["warnings"]:
-        st.warning(warning)
+    _render_target_explanation(db.get_profile(user_id), manual)
 
     with st.expander("Fine-tune targets by hand"):
         calories = st.number_input("Calories (kcal)", 1200, 6000, current["calories"], step=50)
@@ -86,16 +56,73 @@ def _render_targets(user_id):
         fat = st.number_input("Fat (g)", 0, 300, current["fat_g"])
         left, right = st.columns(2)
         if left.button("Save my targets"):
-            db.save_targets(
-                user_id,
-                {"calories": calories, "protein_g": protein, "carbs_g": carbs, "fat_g": fat},
-                manual=True,
-            )
-            st.rerun()
+            chosen = {"calories": calories, "protein_g": protein, "carbs_g": carbs, "fat_g": fat}
+            errors = validate_manual_targets(chosen)
+            for error in errors:
+                st.error(error)
+            if not errors:
+                db.save_targets(user_id, chosen, manual=True)
+                st.rerun()
         if manual and right.button("Go back to automatic targets"):
             db.save_targets(user_id, current, manual=False)
             targets_service.recalibrate(user_id)
             st.rerun()
+
+
+def _render_target_explanation(profile, manual):
+    """Show how the automatic targets are worked out, one step at a time."""
+    steps = targets_service.explain_targets(profile)
+    targets = steps["targets"]
+    with st.expander("How your targets are calculated"):
+        if manual:
+            st.info(
+                "You set your targets by hand, so the app uses those. "
+                "Below is what the automatic calculation would give."
+            )
+        if steps["bmr_method"] == "Katch-McArdle":
+            bmr_formula = "Katch-McArdle: 370 + 21.6 x lean body mass (kg), because you gave a body-fat %"
+        else:
+            bmr_formula = (
+                "Mifflin-St Jeor: 10 x weight (kg) + 6.25 x height (cm) - 5 x age, "
+                "+5 for men or -161 for women"
+            )
+        st.markdown(
+            f"**1. Resting burn (BMR): {steps['bmr_kcal']:,} kcal**  \n"
+            f"The energy your body uses at rest. Formula: {bmr_formula}."
+        )
+        st.markdown(
+            f"**2. Activity: {steps['tdee_kcal']:,} kcal a day (maintenance)**  \n"
+            f"BMR {steps['bmr_kcal']:,} + daily movement {steps['neat_kcal']:,} "
+            f"+ exercise {steps['eat_kcal']:,} + digesting food {steps['tef_kcal']:,} "
+            f"= {steps['tdee_kcal']:,} kcal. "
+            f"That is an activity multiplier of about x{steps['activity_multiplier']} on your BMR. "
+            "Exercise is averaged over seven days."
+        )
+        change = round((steps["goal_modifier"] - 1) * 100)
+        change_text = "no change" if change == 0 else f"{change:+d}%"
+        goal_line = (
+            f"**3. Goal adjustment ({steps['goal']}): {targets['calories']:,} kcal**  \n"
+            f"{steps['tdee_kcal']:,} x {steps['goal_modifier']:.2f} ({change_text}) "
+            f"= {steps['goal_adjusted_kcal']:,} kcal."
+        )
+        if steps["calorie_floor_applied"]:
+            goal_line += (
+                f" This is below the safe minimum, so it is raised to "
+                f"{steps['calorie_floor']:,} kcal."
+            )
+        st.markdown(goal_line)
+        st.markdown(
+            "**4. Macros**  \n"
+            f"Protein: 1.8 g per kg of body weight = {targets['protein_g']} g.  \n"
+            f"Fat: 25% of calories / 9 kcal per g = {targets['fat_g']} g.  \n"
+            f"Carbs: the calories left over / 4 kcal per g = {targets['carbs_g']} g."
+        )
+        components = calculate_tdee(profile)
+        for warning in components["warnings"]:
+            # Settings no longer asks for work steps, so don't warn about them.
+            if warning != WORK_STEPS_WARNING:
+                st.warning(warning)
+        st.caption("These are estimates from standard formulas, not measurements or medical advice.")
 
 
 def _render_profile_form(user_id, profile):
@@ -123,7 +150,13 @@ def _render_profile_form(user_id, profile):
         else 0
     )
     with st.form("profile_form"):
-        weight = st.number_input("Weight (kg)", 30.0, 300.0, float(profile["weight_kg"]), step=0.5)
+        weight = st.number_input(
+            "Weight (kg)",
+            WEIGHT_MIN_KG,
+            WEIGHT_MAX_KG,
+            min(WEIGHT_MAX_KG, max(WEIGHT_MIN_KG, float(profile["weight_kg"]))),
+            step=0.5,
+        )
         sessions_per_week = st.slider(
             "Training sessions per week",
             min_value=0,
@@ -154,7 +187,7 @@ def _render_profile_form(user_id, profile):
                     ),
                     step=5,
                 )
-        occupation =         st.selectbox(
+        occupation = st.selectbox(
             "Daily occupation movement",
             occupation_types,
             index=occupation_index,
@@ -177,6 +210,21 @@ def _render_profile_form(user_id, profile):
             default=profile.get("diets", []),
         )
         if st.form_submit_button("Save changes"):
+            errors = validate_profile_settings(
+                weight,
+                sessions_per_week,
+                session_duration if sessions_per_week else None,
+                occupation,
+                goal,
+                measurement_units,
+                other,
+                occupations=occupation_types,
+                goals=FITNESS_GOALS,
+            )
+            for error in errors:
+                st.error(error)
+            if errors:
+                return
             profile.update(
                 weight_kg=weight,
                 measurement_units=measurement_units,
@@ -186,6 +234,7 @@ def _render_profile_form(user_id, profile):
                     occupation
                 ],
                 occupation_days_per_week=DEFAULT_OCCUPATION_DAYS_PER_WEEK,
+                # Work steps are no longer asked for; clear any old saved value.
                 occupational_steps_per_workday=None,
                 allergens=allergens + [o.strip() for o in other.split(",") if o.strip()],
                 diets=diets,
