@@ -1,9 +1,8 @@
 # Handles secure login, registration, and user session initialization.
-from pathlib import Path
-
 import streamlit as st
 
 from services import db
+from services.branding import logo_data_uri
 
 
 def render_login_page():
@@ -12,10 +11,20 @@ def render_login_page():
         st.markdown(
             """
             <style>
-            div.st-key-auth_title [data-testid="stHorizontalBlock"] {
+            .auth-brand {
+                display: flex;
+                align-items: center;
+                gap: 16px;
+                margin: 32px 0 8px;
             }
-            div.st-key-auth_title img {
-                transform: translateY(8px);
+            .auth-brand img {
+                border-radius: 12px;
+            }
+            .auth-brand h1 {
+                margin: 0;
+                padding: 0;
+                font-size: 2rem;
+                font-weight: 500;
             }
             div[data-testid="stHorizontalBlock"]:has(div.st-key-forgot_password) {
                 gap: 0;
@@ -24,30 +33,25 @@ def render_login_page():
                 background: transparent;
                 border: none;
                 box-shadow: none;
-                color: inherit;
+                color: var(--sustain-secondary);
                 padding: 0;
             }
             div.st-key-forgot_password button:hover {
                 background: transparent;
                 border: none;
                 box-shadow: none;
-                color: #808080;
+                color: var(--sustain-text);
             }
             </style>
             """,
             unsafe_allow_html=True,
         )
         with st.container(key="auth_title"):
-            title_logo_column, title_text_column = st.columns(
-                [0.7, 5], vertical_alignment="center"
+            st.html(
+                '<div class="auth-brand">'
+                f'<img src="{logo_data_uri()}" alt="Sustain logo" width="48" height="48">'
+                "<h1>Sustain</h1></div>"
             )
-            with title_logo_column:
-                st.image(
-                    Path(__file__).resolve().parents[1] / "assets" / "sustain_logo_svg.svg",
-                    width=56,
-                )
-            with title_text_column:
-                st.title("SustAIn")
         login_tab, register_tab = st.tabs(["Log in", "Sign up"])
 
         with login_tab:
@@ -56,7 +60,7 @@ def render_login_page():
                 password = st.text_input("Password", type="password", key="login_password")
                 login_column, forgot_password_column = st.columns([0.6, 3.4])
                 with login_column:
-                    login_submitted = st.form_submit_button("Log in")
+                    login_submitted = st.form_submit_button("Log in", type="primary")
                 with forgot_password_column:
                     st.form_submit_button("Forgot password?", key="forgot_password")
             if login_submitted:
@@ -71,11 +75,11 @@ def render_login_page():
 
         with register_tab:
             with st.form("signup_form"):
-                username = st.text_input("Choose a Username", key="reg_username")
+                username = st.text_input("Choose a username", key="reg_username")
                 password = st.text_input(
-                    "Choose a Password", type="password", key="reg_password"
+                    "Choose a password", type="password", key="reg_password"
                 )
-                signup_submitted = st.form_submit_button("Sign up")
+                signup_submitted = st.form_submit_button("Sign up", type="primary")
             if signup_submitted:
                 if not username or len(password) < 6:
                     st.error("Enter a username and a password of at least 6 characters.")

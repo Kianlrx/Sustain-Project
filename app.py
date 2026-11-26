@@ -3,7 +3,7 @@ from urllib.parse import quote
 import streamlit as st
 
 from services import db
-from services.branding import logo_data_uri
+from services.branding import logo_data_uri, theme_tokens_css
 from views.auth import render_login_page, render_logout_button
 from views.onboarding import render_onboarding_page
 from views.dashboard import render_dashboard_page
@@ -80,7 +80,7 @@ BUTTON_ICONS = {
 def _icon_url(name):
     svg = (
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" '
-        'stroke="black" stroke-width="1.9" stroke-linecap="round" '
+        'stroke="black" stroke-width="1.75" stroke-linecap="round" '
         f'stroke-linejoin="round">{_ICON_PATHS[name]}</svg>'
     )
     return f'url("data:image/svg+xml,{quote(svg)}")'
@@ -95,6 +95,14 @@ ICON_STYLES = "\n".join(
     f"-webkit-mask-image: {_icon_url(icon)}; mask-image: {_icon_url(icon)}; }}"
     for key, icon in BUTTON_ICONS.items()
 )
+
+# Shared colour tokens (light and dark, see services/branding.py) and page rules.
+THEME_STYLES = "<style>" + theme_tokens_css() + """
+    [data-testid="stHeader"] { background: transparent; }
+    h1, h2, h3 { letter-spacing: 0; }
+    [data-testid="InputInstructions"] { display: none; }
+</style>"""
+
 
 SIDEBAR_STYLES = f"""
 <style>
@@ -120,10 +128,10 @@ SIDEBAR_STYLES = f"""
     }}
     section[data-testid="stSidebar"],
     section[data-testid="stSidebar"] > div:first-child {{
-        background: #131720;
+        background: var(--sustain-sidebar);
     }}
     section[data-testid="stSidebar"] {{
-        border-right: 1px solid #222733;
+        border-right: 1px solid var(--sustain-border);
     }}
 
     /* ---- Full-height column so Settings / Log out sit at the bottom ---- */
@@ -163,12 +171,12 @@ SIDEBAR_STYLES = f"""
         margin-top: auto !important;
     }}
 
-    /* ---- Brand header: 60px tall, 16px side padding, 32px logo ---- */
+    /* ---- Brand header: 56px tall, 16px side padding, 28px logo ---- */
     .st-key-sidebar_brand {{
-        height: 60px !important;
-        min-height: 60px;
+        height: 56px !important;
+        min-height: 56px;
         padding: 0 16px;
-        border-bottom: 1px solid rgba(34, 39, 51, .8);
+        border-bottom: 1px solid var(--sustain-border);
         justify-content: center;
     }}
     .sustain-brand {{
@@ -177,73 +185,71 @@ SIDEBAR_STYLES = f"""
         gap: 10px;
     }}
     .sustain-brand img {{
-        width: 32px;
-        height: 32px;
+        width: 28px;
+        height: 28px;
         flex-shrink: 0;
-        border-radius: 9px;
+        border-radius: 8px;
     }}
     .sustain-brand span {{
-        color: #f8fafc;
-        font-size: 15px;
-        font-weight: 700;
+        color: var(--sustain-text);
+        font-size: 16px;
+        font-weight: 600;
         line-height: 1;
-        letter-spacing: -.025em;
     }}
 
-    /* ---- Menu section: 16px top margin, 10px side padding, 4px gaps ---- */
+    /* ---- Menu section: 24px top margin, 12px side padding, 2px gaps ---- */
     .st-key-sidebar_nav {{
-        margin-top: 16px !important;
-        padding: 0 10px;
+        margin-top: 24px !important;
+        padding: 0 12px;
     }}
     .st-key-sidebar_nav,
     .st-key-sidebar_nav [data-testid="stVerticalBlock"],
     .st-key-sidebar_footer,
     .st-key-sidebar_footer [data-testid="stVerticalBlock"] {{
-        gap: 4px !important;
+        gap: 2px !important;
     }}
     .sustain-menu-label {{
-        margin: 0 0 4px !important;
-        padding: 0 10px;
-        color: #5c6677;
-        font-size: 10px !important;
-        font-weight: 600;
-        line-height: 15px;
-        letter-spacing: .08em;
-        text-transform: uppercase;
+        margin: 0 0 8px !important;
+        padding: 0 12px;
+        color: var(--sustain-muted);
+        font-size: 12px !important;
+        font-weight: 400;
+        line-height: 16px;
     }}
 
-    /* ---- Footer: 1px divider, 14px vertical / 10px side padding ---- */
+    /* ---- Footer: 1px divider, 12px padding ---- */
     .st-key-sidebar_footer {{
-        padding: 14px 10px;
-        border-top: 1px solid #222733;
+        padding: 12px;
+        border-top: 1px solid var(--sustain-border);
     }}
 
-    /* ---- Nav buttons: 40px tall, 12px padding, 18px icon, 12px gap ---- */
+    /* ---- Nav rows: 36px tall, 12px padding, 16px icon, 10px gap ---- */
     {_buttons()} {{
         position: relative;
         display: flex;
         align-items: center;
         justify-content: flex-start;
-        gap: 12px;
+        gap: 10px;
         width: 100%;
-        height: 40px;
-        min-height: 40px;
+        height: 36px;
+        min-height: 36px;
         padding: 0 12px;
-        border: 0;
-        border-radius: 10px;
+        border: 1px solid transparent;
+        border-radius: 8px;
         background: transparent;
-        color: #8b949e;
+        color: var(--sustain-secondary);
         box-shadow: none;
-        transition: background-color .15s, color .15s;
+        transition: background-color .15s cubic-bezier(.22, 1, .36, 1),
+            color .15s cubic-bezier(.22, 1, .36, 1);
     }}
     {_buttons("::before")} {{
         content: "";
-        width: 18px;
-        height: 18px;
+        width: 16px;
+        height: 16px;
         flex-shrink: 0;
         background-color: currentColor;
-        -webkit-mask: no-repeat center / 18px 18px;
-        mask: no-repeat center / 18px 18px;
+        -webkit-mask: no-repeat center / 16px 16px;
+        mask: no-repeat center / 16px 16px;
     }}
 {ICON_STYLES}
     {_buttons(" > div")} {{
@@ -251,51 +257,42 @@ SIDEBAR_STYLES = f"""
     }}
     {_buttons(" p")} {{
         margin: 0;
-        font-size: 13.5px;
-        font-weight: 500;
+        font-size: 14px;
+        font-weight: 400;
         line-height: 1;
         white-space: nowrap;
     }}
     {_buttons(":hover")} {{
-        border: 0;
-        background: #1a202e;
-        color: #f8fafc;
+        border-color: transparent;
+        background: var(--sustain-sidebar-hover);
+        color: var(--sustain-text);
     }}
     {_buttons(":focus:not(:active)")} {{
-        border: 0;
+        border-color: transparent;
         box-shadow: none;
     }}
-    .st-key-sidebar_logout_button button:hover {{
-        background: rgba(255, 75, 75, .1);
-        color: #ff4b4b;
+    {_buttons(":focus-visible")} {{
+        outline: 2px solid var(--sustain-secondary);
+        outline-offset: -2px;
     }}
 </style>
 """
 
 
 def _active_nav_styles(key):
-    # Highlighted row: lighter background, white text, red icon and a
-    # 3px x 16px red pill 4px from the left edge, as in the prototype.
+    # Highlighted row: one surface step up with a hairline, primary text,
+    # and the icon in the brand red.
     button = f".st-key-{key} button"
     return f"""
     <style>
         {button}, {button}:hover, {button}:focus:not(:active) {{
-            background: #1e2433;
-            color: #f8fafc;
+            border-color: var(--sustain-border);
+            background: var(--sustain-sidebar-active);
+            color: var(--sustain-text);
+            box-shadow: var(--sustain-highlight);
         }}
-        {button} p {{ font-weight: 600; }}
-        {button}::before {{ background-color: #ff4b4b; }}
-        {button}::after {{
-            content: "";
-            position: absolute;
-            top: 50%;
-            left: 4px;
-            width: 3px;
-            height: 16px;
-            border-radius: 999px;
-            background: #ff4b4b;
-            transform: translateY(-50%);
-        }}
+        {button} p {{ font-weight: 500; }}
+        {button}::before {{ background-color: var(--sustain-accent); }}
     </style>
     """
 
@@ -341,11 +338,9 @@ try:
 except db.DatabaseConfigurationError as exc:
     st.error(str(exc))
     st.stop()
-# Hide Streamlit's "Press Enter to submit form" hint under inputs, on every form.
-st.markdown(
-    '<style>[data-testid="InputInstructions"] { display: none; }</style>',
-    unsafe_allow_html=True,
-)
+# Shared colour tokens, plus hiding Streamlit's "Press Enter to submit form"
+# hint under inputs on every form.
+st.markdown(THEME_STYLES, unsafe_allow_html=True)
 
 st.session_state.setdefault("user", None)
 

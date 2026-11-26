@@ -90,73 +90,70 @@ DEFAULTS = {
 
 ONBOARDING_CSS = """
 <style>
-    [data-testid="stAppViewContainer"] { background:#0e1117; color:#f8fafc; }
-    [data-testid="stHeader"] { background:rgba(14,17,23,.94); }
-    .block-container { max-width:860px; padding:4.5rem 1.25rem 9rem; }
+        .block-container { max-width:860px; padding:4.5rem 1.25rem 9rem; }
     .ob-brand { display:flex; align-items:center; gap:.75rem; flex-wrap:wrap; }
     .ob-brand img { width:40px; height:40px; border-radius:11px; }
-    .ob-wordmark { font-size:1.25rem; font-weight:700; letter-spacing:-.025em; color:#f8fafc; }
+    .ob-wordmark { font-size:1.125rem; font-weight:600; color:var(--sustain-text); }
     .ob-status { display:inline-flex; align-items:center; gap:.4rem; padding:.25rem .7rem;
-        border-radius:999px; background:rgba(255,75,75,.14); border:1px solid rgba(255,75,75,.32);
-        color:#ff8585; font-size:.72rem; font-weight:600; }
-    .ob-status i { width:6px; height:6px; border-radius:50%; background:#ff4b4b; }
-    .ob-title { margin:.9rem 0 .3rem; font-size:1.75rem; font-weight:700; letter-spacing:-.03em;
-        line-height:1.2; color:#f8fafc; }
-    .ob-sub { color:#94a3b8; font-size:.9rem; line-height:1.55; margin-bottom:1.3rem; }
+        border-radius:4px; border:1px solid var(--sustain-border);
+        color:var(--sustain-secondary); font-size:.75rem; font-weight:400; }
+    .ob-status i { width:6px; height:6px; border-radius:50%; background:var(--sustain-accent); }
+    .ob-title { margin:16px 0 4px; font-size:2rem; font-weight:500;
+        line-height:1.2; color:var(--sustain-text); }
+    .ob-sub { color:var(--sustain-secondary); font-size:.9rem; line-height:1.55; margin-bottom:1.3rem; }
 
-    .ob-stepper { padding:1rem 1.25rem; border:1px solid #262c3a; border-radius:14px;
-        background:#161b26; }
+    .ob-stepper { padding:1rem 1.25rem; border:1px solid var(--sustain-border); border-radius:14px;
+        background:var(--sustain-surface); }
     .ob-tabs { display:grid; grid-template-columns:repeat(3,1fr); gap:.6rem; margin-bottom:.75rem; }
     .ob-tab { display:flex; align-items:center; gap:.6rem; padding:.6rem .75rem; border-radius:10px;
-        background:#1e222d; border:1px solid #2d3242; }
-    .ob-tab.active { border-color:#ff4b4b; background:rgba(255,75,75,.1); }
-    .ob-tab.done { border-color:rgba(52,211,153,.4); }
+        background:var(--sustain-raised); border:1px solid var(--sustain-border); }
+    .ob-tab.active { border-color:var(--sustain-border-strong); background:var(--sustain-hover-strong); }
+    .ob-tab.done { border-color:var(--sustain-border); }
     .ob-num { flex-shrink:0; width:24px; height:24px; display:grid; place-items:center;
-        border-radius:50%; background:#161b26; border:1px solid #3c4459;
-        color:#94a3b8; font-size:.72rem; font-weight:700; }
-    .ob-tab.active .ob-num { background:#ff4b4b; border-color:#ff4b4b; color:#fff; }
-    .ob-tab.done .ob-num { background:#34d399; border-color:#34d399; color:#0e1117; }
-    .ob-tab-title { font-size:.8rem; font-weight:600; color:#f8fafc; }
-    .ob-tab-sub { font-size:.7rem; color:#64748b; }
-    .ob-track { height:5px; border-radius:999px; background:#1e222d; overflow:hidden; }
-    .ob-fill { height:100%; border-radius:999px; background:linear-gradient(90deg,#ff4b4b,#ff7a59); }
+        border-radius:50%; background:var(--sustain-surface); border:1px solid var(--sustain-border-strong);
+        color:var(--sustain-secondary); font-size:.75rem; font-weight:500; }
+    .ob-tab.active .ob-num { background:var(--sustain-accent); border-color:var(--sustain-accent); color:#fff; }
+    .ob-tab.done .ob-num { background:var(--sustain-raised); border-color:var(--sustain-border); color:var(--sustain-positive); }
+    .ob-tab-title { font-size:.8125rem; font-weight:500; color:var(--sustain-text); }
+    .ob-tab-sub { font-size:.7rem; color:var(--sustain-muted); }
+    .ob-track { height:5px; border-radius:999px; background:var(--sustain-raised); overflow:hidden; }
+    .ob-fill { height:100%; border-radius:999px; background:var(--sustain-accent); }
     @media (max-width:640px) { .ob-tabs { grid-template-columns:1fr; } }
 
-    .st-key-ob_card { padding:1.35rem; border:1px solid #262c3a; border-radius:14px;
-        background:#161b26; }
+    .st-key-ob_card { padding:1.35rem; border:1px solid var(--sustain-border); border-radius:14px;
+        background:var(--sustain-surface); }
     .ob-card-head { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap;
-        gap:.75rem; padding-bottom:1rem; border-bottom:1px solid #262c3a; }
+        gap:.75rem; padding-bottom:1rem; border-bottom:1px solid var(--sustain-border); }
     .ob-card-title { display:flex; align-items:center; gap:.7rem; }
-    .ob-card-title h2 { margin:0; padding:0; font-size:1.05rem; font-weight:700;
-        letter-spacing:-.015em; color:#f8fafc; }
+    .ob-card-title h2 { margin:0; padding:0; font-size:1.125rem; font-weight:500; color:var(--sustain-text); }
     .ob-icon { width:34px; height:34px; display:grid; place-items:center; border-radius:9px;
-        background:#1e222d; border:1px solid #2d3242; }
+        background:var(--sustain-raised); border:1px solid var(--sustain-border); }
     .ob-icon img { width:18px; height:18px; }
     .ob-tip { width:17px; height:17px; display:inline-grid; place-items:center; border-radius:50%;
-        background:#1e222d; border:1px solid #3c4459; color:#94a3b8; font-size:.65rem;
-        font-weight:700; cursor:help; }
-    .ob-pill { display:inline-flex; align-items:center; padding:.25rem .7rem; border-radius:999px;
-        font-size:.72rem; font-weight:600; border:1px solid; }
-    .ob-pill.green { color:#34d399; background:rgba(52,211,153,.14); border-color:rgba(52,211,153,.32); }
-    .ob-pill.amber { color:#fbbf24; background:rgba(251,191,36,.14); border-color:rgba(251,191,36,.34); }
-    .ob-pill.blue { color:#38bdf8; background:rgba(56,189,248,.14); border-color:rgba(56,189,248,.38); }
-    .ob-pill.grey { color:#94a3b8; background:#1e222d; border-color:#3c4459; }
+        background:var(--sustain-raised); border:1px solid var(--sustain-border-strong); color:var(--sustain-secondary); font-size:.6875rem;
+        font-weight:500; cursor:help; }
+    .ob-pill { display:inline-flex; align-items:center; padding:2px 8px; border-radius:4px;
+        font-size:.75rem; font-weight:400; border:1px solid var(--sustain-border); background:transparent; }
+    .ob-pill.green { color:var(--sustain-positive); }
+    .ob-pill.amber { color:var(--sustain-caution); }
+    .ob-pill.blue { color:var(--sustain-info); }
+    .ob-pill.grey { color:var(--sustain-secondary); }
     .ob-label { display:flex; justify-content:space-between; align-items:center; gap:.5rem;
-        margin:.2rem 0 -.35rem; font-size:.82rem; font-weight:600; color:#f8fafc; }
-    .ob-label span { color:#94a3b8; font-size:.75rem; font-weight:500; }
-    .ob-label .hot { color:#ff4b4b; font-weight:700; }
+        margin:.2rem 0 -.35rem; font-size:.875rem; font-weight:500; color:var(--sustain-text); }
+    .ob-label span { color:var(--sustain-secondary); font-size:.75rem; font-weight:500; }
+    .ob-label .hot { color:var(--sustain-negative); font-weight:500; }
 
-    .st-key-ob_bodyfat { padding:.85rem 1rem; border:1px solid #2d3242; border-radius:12px;
-        background:#1e222d; }
+    .st-key-ob_bodyfat { padding:.85rem 1rem; border:1px solid var(--sustain-border); border-radius:12px;
+        background:var(--sustain-raised); }
 
     /* Selected segmented controls and pills fill solid, as in the design */
     .st-key-ob_card button[data-testid="stBaseButton-segmented_controlActive"],
     .st-key-ob_card button[data-testid="stBaseButton-pillsActive"] {
-        background:#ff4b4b; border-color:#ff4b4b; color:#fff; }
+        background:var(--sustain-accent); border-color:var(--sustain-accent); color:#fff; }
     .st-key-ob_card button[data-testid="stBaseButton-segmented_controlActive"] p,
     .st-key-ob_card button[data-testid="stBaseButton-pillsActive"] p { color:#fff; }
     .st-key-ob_diets button[data-testid="stBaseButton-pillsActive"] {
-        background:rgba(52,211,153,.16); border-color:#34d399; }
+        background:var(--sustain-hover-strong); border-color:var(--sustain-border-strong); }
 
     /* Radio groups rendered as selectable cards */
     [class*="st-key-ob_cards"] [data-testid="stElementContainer"],
@@ -168,40 +165,39 @@ ONBOARDING_CSS = """
     @media (max-width:640px) {
         [class*="st-key-ob_cards"] div[role="radiogroup"] { grid-template-columns:1fr; } }
     [class*="st-key-ob_cards"] label[data-baseweb="radio"] { margin:0; padding:.75rem .9rem;
-        border:1px solid #2d3242; border-radius:12px; background:#1e222d;
-        align-items:flex-start; transition:border-color .15s, background .15s; }
-    [class*="st-key-ob_cards"] label[data-baseweb="radio"]:hover { border-color:#3c4459;
-        background:#252a38; }
+        border:1px solid var(--sustain-border); border-radius:12px; background:var(--sustain-raised);
+        align-items:flex-start; transition:border-color .15s cubic-bezier(.22,1,.36,1), background-color .15s cubic-bezier(.22,1,.36,1); }
+    [class*="st-key-ob_cards"] label[data-baseweb="radio"]:hover { border-color:var(--sustain-border-strong);
+        background:var(--sustain-hover-strong); }
     [class*="st-key-ob_cards"] label[data-baseweb="radio"]:has(input:checked) {
-        border-color:#ff4b4b; background:rgba(255,75,75,.11);
-        box-shadow:inset 0 0 0 1px rgba(255,75,75,.35); }
+        border-color:var(--sustain-accent); background:var(--sustain-hover-strong);
+        box-shadow:inset 0 0 0 1px var(--sustain-accent); }
     [class*="st-key-ob_cards"] label[data-baseweb="radio"] > div:first-child { display:none; }
     [class*="st-key-ob_cards"] label[data-baseweb="radio"] p { font-size:.85rem; }
     [class*="st-key-ob_cards"] [data-testid="stCaptionContainer"] p { font-size:.74rem;
-        color:#94a3b8; line-height:1.4; }
+        color:var(--sustain-secondary); line-height:1.4; }
 
     /* Bottom dock with the live TDEE preview and navigation */
     .st-key-ob_dock { position:fixed; left:0; right:0; bottom:0; z-index:100;
         padding:.8rem max(1.25rem, calc((100vw - 860px) / 2 + 1.25rem));
-        background:rgba(22,27,38,.95); backdrop-filter:blur(12px);
-        border-top:1px solid #262c3a; box-shadow:0 -10px 30px rgba(0,0,0,.48); }
+        background:var(--sustain-dock);
+        border-top:1px solid var(--sustain-border); }
     .ob-preview { display:flex; flex-wrap:wrap; align-items:center; gap:1rem; }
     .ob-metric { display:flex; flex-direction:column; }
-    .ob-metric small { color:#64748b; font-size:.62rem; font-weight:600; text-transform:uppercase;
-        letter-spacing:.05em; }
-    .ob-metric b { color:#f8fafc; font-size:.98rem; font-variant-numeric:tabular-nums; }
-    .ob-divider { width:1px; height:28px; background:#2d3242; }
+    .ob-metric small { color:var(--sustain-muted); font-size:.75rem; font-weight:400; }
+    .ob-metric b { color:var(--sustain-text); font-size:1rem; font-weight:500; font-variant-numeric:tabular-nums; }
+    .ob-divider { width:1px; height:28px; background:var(--sustain-border); }
     .ob-macros { display:flex; gap:.4rem; flex-wrap:wrap; }
     .ob-macro { display:inline-flex; align-items:center; gap:.35rem; padding:.25rem .55rem;
-        border-radius:8px; background:#1e222d; border:1px solid #2d3242; font-size:.75rem;
-        font-weight:700; font-variant-numeric:tabular-nums; }
+        border-radius:8px; background:var(--sustain-raised); border:1px solid var(--sustain-border); font-size:.75rem;
+        font-weight:500; font-variant-numeric:tabular-nums; }
     .ob-macro i { width:8px; height:8px; border-radius:50%; }
-    .st-key-ob_dock button { min-height:42px; border-radius:10px; font-weight:650; }
-    .st-key-ob_back button { background:#1e222d; border:1px solid #2d3242; color:#f8fafc; }
-    .st-key-ob_back button:hover { background:#252a38; border-color:#3c4459; color:#fff; }
-    .st-key-ob_next button, .st-key-ob_submit button { background:#ff4b4b; border:0; color:#fff;
-        box-shadow:0 4px 16px rgba(255,75,75,.34); }
-    .st-key-ob_next button:hover, .st-key-ob_submit button:hover { background:#ff6161; color:#fff; }
+    .st-key-ob_dock button { min-height:40px; border-radius:8px; font-weight:500; }
+    .st-key-ob_back button { background:var(--sustain-raised); border:1px solid var(--sustain-border); color:var(--sustain-text); }
+    .st-key-ob_back button:hover { background:var(--sustain-hover-strong); border-color:var(--sustain-border-strong); color:var(--sustain-text); }
+    .st-key-ob_next button, .st-key-ob_submit button { background:var(--sustain-accent); border:0; color:#fff;
+        box-shadow:none; }
+    .st-key-ob_next button:hover, .st-key-ob_submit button:hover { background:var(--sustain-accent-hover); color:#fff; }
 </style>
 """
 
@@ -483,17 +479,17 @@ def _submit():
 
 # ---- Rendering ---------------------------------------------------------------
 
-def _icon(name, color="#ff4b4b"):
+def _icon(name, color="#8a8a90"):
     svg = (
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" '
-        f'stroke="{color}" stroke-width="2" stroke-linecap="round" '
+        f'stroke="{color}" stroke-width="1.5" stroke-linecap="round" '
         f'stroke-linejoin="round">{_ICONS[name]}</svg>'
     )
     # st.html strips inline <svg>, so icons are embedded as images.
     return f'<span class="ob-icon"><img alt="" src="data:image/svg+xml,{quote(svg)}"></span>'
 
 
-def _card_header(icon, title, tip, badge="", icon_color="#ff4b4b"):
+def _card_header(icon, title, tip, badge="", icon_color="#8a8a90"):
     st.html(
         '<div class="ob-card-head"><div class="ob-card-title">'
         f"{_icon(icon, icon_color)}<h2>{escape(title)}</h2>"
@@ -512,8 +508,8 @@ def _header():
     st.html(
         f'<div class="ob-brand"><img src="{logo_data_uri()}" alt="Sustain logo">'
         '<span class="ob-wordmark">Sustain</span>'
-        '<span class="ob-status"><i></i>Profile &amp; TDEE Calibration</span></div>'
-        '<h1 class="ob-title">Welcome to Sustain</h1>'
+        '</div>'
+        '<h1 class="ob-title">Set up your profile</h1>'
         '<p class="ob-sub">Complete your profile so we can tailor your daily calories, '
         "macros and recipe recommendations.</p>"
     )
@@ -704,7 +700,7 @@ def _step_allergies():
         "shield", "Allergies & Dietary Restrictions",
         "Excluded foods are kept out of recipe searches and meal suggestions.",
         '<span class="ob-pill grey">Optional</span>',
-        icon_color="#34d399",
+        icon_color="#8a8a90",
     )
     excluded = len(st.session_state["allergens"]) + len(
         [v for v in st.session_state["other_allergen"].split(",") if v.strip()]
@@ -749,11 +745,11 @@ def _dock(step):
             f'<div class="ob-metric"><small>Maintenance TDEE</small><b>{tdee_text}</b></div>'
             '<span class="ob-divider"></span>'
             f'<div class="ob-metric"><small>Target ({goal})</small>'
-            f'<b style="color:#ff4b4b">{target_text}</b></div>'
+            f'<b style="color:var(--sustain-text)">{target_text}</b></div>'
             '<span class="ob-divider"></span><div class="ob-macros">'
-            f'<span class="ob-macro"><i style="background:#38bdf8"></i>P {protein}</span>'
-            f'<span class="ob-macro"><i style="background:#fbbf24"></i>C {carbs}</span>'
-            f'<span class="ob-macro"><i style="background:#a78bfa"></i>F {fat}</span>'
+            f'<span class="ob-macro"><i style="background:#5aa9d6"></i>P {protein}</span>'
+            f'<span class="ob-macro"><i style="background:#e2a640"></i>C {carbs}</span>'
+            f'<span class="ob-macro"><i style="background:#9d8fd1"></i>F {fat}</span>'
             "</div></div>"
         )
         if step > 1:
@@ -773,7 +769,7 @@ def render_onboarding_page():
         st.session_state[key] = st.session_state.get(key, default)
     st.html(ONBOARDING_CSS)
     if warning := st.session_state.pop("unit_conversion_warning", None):
-        st.toast(warning, icon="⚠️")
+        st.toast(warning, icon=":material/warning:")
 
     step = st.session_state["ob_step"]
     _header()

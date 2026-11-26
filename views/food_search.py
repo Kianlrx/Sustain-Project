@@ -13,7 +13,7 @@ def _close_dialog():
     st.rerun()
 
 
-@st.dialog("Search Food", width="medium")
+@st.dialog("Search food", width="medium")
 def render_food_search_dialog(user_id, log_date=None):
     query, selected = food_autocomplete(user_id)
     meal_slot = st.session_state.get("diary_dialog_meal_slot", "Snack")
@@ -43,7 +43,7 @@ def render_food_search_dialog(user_id, log_date=None):
 
     results = state.get("results")
     if results is not None:
-        st.markdown("#### USDA Database Matches")
+        st.markdown("#### USDA matches")
         st.caption(f'Results for "{state["query"]}"')
         if not results:
             st.info("No matching foods were found. Try a broader search.")
@@ -148,7 +148,7 @@ def render_find_recipe_dialog():
         _close_dialog()
 
 
-@st.dialog("Saved Recipes", width="large")
+@st.dialog("Saved recipes", width="large")
 def render_saved_recipes_dialog(user_id):
     recipes = db.get_saved_recipes(user_id)
     if not recipes:

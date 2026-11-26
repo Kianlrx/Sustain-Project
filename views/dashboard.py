@@ -6,19 +6,19 @@ from urllib.parse import quote
 import streamlit as st
 
 from services import db, targets as targets_service
-from services.branding import logo_data_uri
 from services.tdee_engine import calculate_tdee
 
 
+# Each colour stands for one series wherever it appears (bars, chart, legend).
 COLORS = {
-    "calories": "#ff4b4b",
-    "protein": "#38bdf8",
-    "carbs": "#fbbf24",
-    "fat": "#a78bfa",
-    "bmr": "#38bdf8",
-    "neat": "#34d399",
-    "eat": "#fbbf24",
-    "tef": "#a78bfa",
+    "calories": "#dc2a46",
+    "protein": "#5aa9d6",
+    "carbs": "#e2a640",
+    "fat": "#9d8fd1",
+    "bmr": "#5aa9d6",
+    "neat": "#4cc38a",
+    "eat": "#e2a640",
+    "tef": "#9d8fd1",
 }
 
 NUTRIENTS = (
@@ -42,136 +42,125 @@ TISSUE_LOSS_DECAY_RATE = 0.0415
 CHART_SAMPLES_PER_WEEK = 4
 DASHBOARD_CSS = """
 <style>
-    [data-testid="stAppViewContainer"] { background:#0e1117; color:#e2e8f0; }
-    [data-testid="stHeader"] { background:rgba(14,17,23,.94); }
-    .block-container { max-width:none; padding:2rem clamp(1rem,3vw,2.5rem) 3rem; }
-    .st-key-dashboard_profile { padding:1.25rem; border:1px solid #343b4e;
-        border-radius:14px; background:#161b26; }
+    .block-container { max-width:1440px; padding:2rem clamp(1rem,3vw,2rem) 3rem; }
+    .st-key-dashboard_profile { padding:24px; border:1px solid var(--sustain-border);
+        border-radius:16px; background:var(--sustain-surface); }
     .st-key-dashboard_edit button {
-        min-height:40px; border:0; border-radius:8px;
-        background:#ff4b4b; color:#fff; font-weight:650;
+        min-height:40px; border:1px solid var(--sustain-border); border-radius:8px;
+        background:var(--sustain-raised); color:var(--sustain-text); font-weight:500;
+        transition:background-color .15s cubic-bezier(.22,1,.36,1);
     }
-    .st-key-dashboard_edit button:hover { background:#ff6363; color:#fff; }
+    .st-key-dashboard_edit button:hover { background:var(--sustain-hover-strong); border-color:var(--sustain-border);
+        color:var(--sustain-text); }
     .sd, .sd * { box-sizing:border-box; }
-    .sd { color:#e2e8f0; font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
-    .sd-hero { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap;
-        gap:1rem; padding:.1rem 0 .45rem; }
-    .sd-brand { display:flex; align-items:center; gap:.75rem; }
-    .sd-logo { width:42px; height:42px; object-fit:contain; border-radius:11px; }
-    .sd-brand-name { color:#fff; font-size:1.2rem; font-weight:800; letter-spacing:-.03em; }
-    .sd-status { display:inline-flex; align-items:center; gap:.4rem; border-radius:999px;
-        padding:.32rem .62rem; color:#34d399; font-size:.8rem; font-weight:700;
-        background:rgba(52,211,153,.1); border:1px solid rgba(52,211,153,.3); }
-    .sd-title { margin:.75rem 0 .25rem; color:#fff; font-size:clamp(1.75rem,3vw,2rem);
-        line-height:1.2; letter-spacing:-.04em; font-weight:800; }
-    .sd-subtitle,.sd-muted { color:#b0bdcf; font-size:.9rem; line-height:1.55; }
-    .sd-section { padding:2rem 0; border-bottom:1px solid #262c3a; }
+    .sd { color:var(--sustain-text); font-family:inherit; }
+    .sd strong { font-weight:600; }
+    .sd-hero { padding:0 0 8px; }
+    .sd-title { margin:0 0 4px; color:var(--sustain-text); font-size:2rem;
+        line-height:1.15; font-weight:500; }
+    .sd-subtitle,.sd-muted { color:var(--sustain-secondary); font-size:.875rem; line-height:1.5; }
+    .sd-section { padding:32px 0; border-bottom:1px solid var(--sustain-border); }
     .sd-section-head { display:flex; align-items:flex-end; justify-content:space-between;
-        flex-wrap:wrap; gap:.65rem; margin-bottom:1rem; }
-    .sd-heading { margin:0; color:#fff; font-size:1.35rem; line-height:1.35; font-weight:750; }
-    .sd-kicker { color:#b0bdcf; font: .78rem ui-monospace,SFMono-Regular,Consolas,monospace;
-        letter-spacing:.08em; text-transform:uppercase; }
-    .sd-profile-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:1.25rem 2rem; }
+        flex-wrap:wrap; gap:12px; margin-bottom:16px; }
+    .sd-heading { margin:0 0 4px; color:var(--sustain-text); font-size:1.375rem; line-height:1.3; font-weight:500; }
+    .sd-kicker { color:var(--sustain-muted); font:400 .75rem/1.4 var(--sustain-mono); }
+    .sd-profile-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:20px 32px; margin-top:20px; }
     .sd-profile-item { min-width:0; }
-    .sd-profile-label { display:block; margin-bottom:.3rem; color:#b0bdcf; font-size:.82rem; }
-    .sd-profile-value { display:block; color:#f8fafc; font-size:1rem; line-height:1.45; font-weight:650; overflow-wrap:anywhere; }
-    .sd-calorie-card { padding:1.35rem 1.5rem; border:1px solid rgba(255,75,75,.4);
-        border-radius:14px; background:linear-gradient(110deg,rgba(255,75,75,.13),#161b26 70%); }
-    .sd-calorie-head { display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; }
-    .sd-calorie-title { color:#fff; font-size:1.05rem; font-weight:700; }
-    .sd-calorie-value { display:block; margin:.35rem 0; color:#fff; font-size:2rem; line-height:1.2; font-weight:800; font-variant-numeric:tabular-nums; }
-    .sd-calorie-subtitle { color:#b0bdcf; font-size:.9rem; }
-    .sd-target-list { display:grid; gap:1rem; }
+    .sd-profile-label { display:block; margin-bottom:4px; color:var(--sustain-muted); font-size:.8125rem; }
+    .sd-profile-value { display:block; color:var(--sustain-text); font-size:1rem; line-height:1.45; font-weight:500; overflow-wrap:anywhere; }
+    .sd-calorie-card { padding:24px; border:1px solid var(--sustain-border);
+        border-radius:16px; background:var(--sustain-surface); }
+    .sd-calorie-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
+    .sd-calorie-title { color:var(--sustain-secondary); font-size:.875rem; font-weight:400; }
+    .sd-calorie-value { display:block; margin:8px 0 4px; color:var(--sustain-text); font-size:3rem; line-height:1; font-weight:500; font-variant-numeric:tabular-nums; }
+    .sd-calorie-subtitle { color:var(--sustain-secondary); font-size:.875rem; }
+    .sd-target-list { display:grid; gap:16px; }
     .sd-target-head { display:flex; align-items:baseline; justify-content:space-between;
-        flex-wrap:wrap; gap:.35rem .8rem; }
-    .sd-target-name { display:flex; align-items:center; flex-wrap:wrap; gap:.5rem; }
-    .sd-label { color:#f8fafc; font-size:1.05rem; line-height:1.25; font-weight:700; }
-    .sd-value { color:#fff; font-size:1.55rem; font-weight:800; font-variant-numeric:tabular-nums; }
-    .sd-subvalue { color:#b0bdcf; font:.78rem ui-monospace,SFMono-Regular,Consolas,monospace; }
-    .sd-track { position:relative; height:16px; overflow:visible; margin:.65rem 0 .25rem;
-        border:1px solid #262c3a; border-radius:999px;
-        background:repeating-linear-gradient(90deg,#1e222d 0,#1e222d calc(25% - 1px),#303543 25%); }
-    .sd-fill { height:100%; min-width:2px; border-radius:999px; }
-    .sd-tick { position:absolute; z-index:2; top:-4px; height:20px; width:2px; background:#e2e8f0; }
-    .sd-tick-caption { display:flex; justify-content:space-between; color:#94a3b8;
-        font: .62rem ui-monospace,SFMono-Regular,Consolas,monospace; }
+        flex-wrap:wrap; gap:4px 12px; }
+    .sd-target-name { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+    .sd-label { color:var(--sustain-text); font-size:.9375rem; line-height:1.25; font-weight:500; }
+    .sd-value { display:block; margin-top:8px; color:var(--sustain-text); font-size:1.75rem; line-height:1.1; font-weight:500; font-variant-numeric:tabular-nums; }
+    .sd-subvalue { color:var(--sustain-muted); font:.75rem var(--sustain-mono); }
+    .sd-track { position:relative; height:8px; overflow:visible; margin:12px 0 8px;
+        border-radius:4px; background:var(--sustain-raised); }
+    .sd-fill { height:100%; min-width:2px; border-radius:4px; }
+    .sd-tick { position:absolute; z-index:2; top:-4px; height:16px; width:2px; border-radius:1px;
+        background:var(--sustain-text); }
+    .sd-tick-caption { display:flex; justify-content:space-between; color:var(--sustain-muted);
+        font: .625rem var(--sustain-mono); }
     .sd-budget-head { display:flex; justify-content:space-between; flex-wrap:wrap;
-        gap:.4rem; margin:1.25rem 0 .55rem; }
-    .sd-macro-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:1rem; margin-top:1rem; }
-    .sd-macro-card { min-width:0; padding:1rem; border:1px solid #343b4e; border-radius:12px; background:#161b26; }
-    .sd-macro-head { display:flex; align-items:center; justify-content:space-between; gap:.5rem; }
-    .sd-macro-share { padding:.2rem .55rem; border-radius:999px; font-size:.8rem; font-weight:750; background:#1e293b; }
-    .sd-macro-energy { color:#b0bdcf; font-size:.85rem; }
-    .sd-budget-strip { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:1rem; }
-    .sd-budget { min-width:0; padding:1rem; border:1px solid #343b4e; border-radius:12px; background:#161b26; }
-    .sd-budget-name { color:#f8fafc; font-size:1.05rem; line-height:1.3; font-weight:700; }
-    .sd-budget-cal { margin:.5rem 0; color:#fff; font-size:1.2rem; font-weight:800; }
-    .sd-budget-macros { color:#b0bdcf; font-size:.83rem; line-height:1.7; }
-    .sd-insight-title { margin:0 0 .75rem; color:#fff; font-size:1.4rem; line-height:1.3; font-weight:750; }
-    .sd-copy { color:#d5deeb; font-size:.92rem; line-height:1.7; }
-    .sd-pillars { display:grid; gap:.7rem; margin:1rem 0; }
-    .sd-pillar { padding-left:.75rem; border-left:2px solid #ff4b4b; }
-    .sd-pillar:nth-child(2) { border-color:#38bdf8; }
-    .sd-pillar:nth-child(3) { border-color:#34d399; }
-    .sd-pillar-name { display:block; color:#f8fafc; font-size:.9rem; font-weight:700; }
-    .sd-pillar-copy { display:block; margin-top:.15rem; color:#b0bdcf; font-size:.85rem; line-height:1.6; }
-    .sd-coaching { margin-top:1rem; padding:.85rem 1rem; border:1px solid #262c3a;
-        border-left:4px solid #fbbf24; border-radius:10px; background:#161b26; }
-    .sd-coaching-title { margin-bottom:.4rem; color:#fbbf24; font-size:.85rem;
-        font-weight:750; letter-spacing:.08em; text-transform:uppercase; }
-    .sd-coaching ul { margin:0; padding-left:1rem; color:#d5deeb; font-size:.88rem; line-height:1.7; }
-    .sd-stats { display:grid; grid-template-columns:repeat(3,1fr); margin:1rem 0;
-        border-top:1px solid #262c3a; border-bottom:1px solid #262c3a; }
-    .sd-stat { padding:.65rem .5rem; }
-    .sd-stat + .sd-stat { border-left:1px solid #262c3a; }
-    .sd-stat-label { display:block; color:#b0bdcf; font-size:.8rem; }
-    .sd-stat-value { display:block; margin-top:.25rem; color:#f8fafc;
-        font-size:1.1rem; font-weight:800; font-variant-numeric:tabular-nums; }
-    .sd-chart { padding:1rem; border:1px solid #343b4e; border-radius:12px; background:#161b26; }
-    .sd-chart-graph { display:grid; grid-template-columns:1.5rem 3rem minmax(0,1fr);
-        align-items:stretch; gap:.45rem; }
+        gap:8px; margin:32px 0 12px; }
+    .sd-budget-head .sd-kicker { color:var(--sustain-text); font-family:inherit; font-size:.9375rem; font-weight:500; }
+    .sd-macro-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; margin-top:16px; }
+    .sd-macro-card { min-width:0; padding:20px; border:1px solid var(--sustain-border); border-radius:12px; background:var(--sustain-surface); }
+    .sd-macro-head { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+    .sd-macro-share { font:.75rem var(--sustain-mono); font-variant-numeric:tabular-nums; }
+    .sd-macro-energy { color:var(--sustain-secondary); font-size:.8125rem; font-variant-numeric:tabular-nums; }
+    .sd-budget-strip { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:16px; }
+    .sd-budget { min-width:0; padding:20px; border:1px solid var(--sustain-border); border-radius:12px; background:var(--sustain-surface); }
+    .sd-budget-name { color:var(--sustain-secondary); font-size:.875rem; line-height:1.3; font-weight:400; }
+    .sd-budget-cal { margin:8px 0; color:var(--sustain-text); font-size:1.25rem; font-weight:500; font-variant-numeric:tabular-nums; }
+    .sd-budget-macros { color:var(--sustain-muted); font:.75rem/1.7 var(--sustain-mono); }
+    .sd-insight-title { margin:0 0 12px; color:var(--sustain-text); font-size:1.375rem; line-height:1.3; font-weight:500; }
+    .sd-copy { max-width:44rem; color:var(--sustain-secondary); font-size:.9375rem; line-height:1.65; }
+    .sd-copy strong { color:var(--sustain-text); }
+    .sd-pillars { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; margin:20px 0; }
+    .sd-pillar { padding:16px 0 0; border-top:1px solid var(--sustain-border); }
+    .sd-pillar-name { display:block; color:var(--sustain-text); font-size:.9375rem; font-weight:500; }
+    .sd-pillar-copy { display:block; margin-top:4px; color:var(--sustain-secondary); font-size:.875rem; line-height:1.6; }
+    .sd-coaching { margin-top:20px; padding:16px 20px; border:1px solid var(--sustain-border);
+        border-radius:12px; background:var(--sustain-surface); }
+    .sd-coaching-title { margin-bottom:8px; color:var(--sustain-text); font-size:.875rem; font-weight:500; }
+    .sd-coaching ul { margin:0; padding-left:16px; color:var(--sustain-secondary); font-size:.875rem; line-height:1.7; }
+    .sd-stats { display:grid; grid-template-columns:repeat(3,1fr); margin:16px 0;
+        border-top:1px solid var(--sustain-border); border-bottom:1px solid var(--sustain-border); }
+    .sd-stat { padding:12px 16px; }
+    .sd-stat + .sd-stat { border-left:1px solid var(--sustain-border); }
+    .sd-stat-label { display:block; color:var(--sustain-muted); font-size:.8125rem; }
+    .sd-stat-value { display:block; margin-top:4px; color:var(--sustain-text);
+        font-size:1.25rem; font-weight:500; font-variant-numeric:tabular-nums; }
+    .sd-chart { padding:24px; border:1px solid var(--sustain-border); border-radius:16px; background:var(--sustain-surface); }
+    .sd-chart-graph { display:grid; grid-template-columns:24px 48px minmax(0,1fr);
+        align-items:stretch; gap:8px; }
     .sd-chart-y-title { display:flex; align-items:center; justify-content:center;
-        color:#e2e8f0; font-size:.88rem; font-weight:650;
+        color:var(--sustain-muted); font-size:.8125rem; font-weight:400;
         writing-mode:vertical-rl; transform:rotate(180deg); }
     .sd-chart-y-axis { display:flex; flex-direction:column; justify-content:space-between;
-        height:300px; padding-right:.3rem; color:#c0ccdc; text-align:right;
-        font:.82rem ui-monospace,SFMono-Regular,Consolas,monospace; }
-    .sd-chart-plot { position:relative; height:300px; margin:0 0 .45rem;
-        border-bottom:1px solid #384052;
+        height:300px; padding-right:4px; color:var(--sustain-muted); text-align:right;
+        font:.75rem var(--sustain-mono); font-variant-numeric:tabular-nums; }
+    .sd-chart-plot { position:relative; height:300px; margin:0 0 8px;
+        border-bottom:1px solid var(--sustain-border-strong);
         background:repeating-linear-gradient(to bottom,transparent 0,transparent calc(33.333% - 1px),
-        #343b4e calc(33.333% - 1px),#343b4e 33.333%); }
+        var(--sustain-grid) calc(33.333% - 1px),var(--sustain-grid) 33.333%); }
     .sd-chart-line { position:absolute; inset:0; width:100%; height:100%; overflow:visible; }
-    .sd-chart-point { position:absolute; z-index:1; width:12px; height:12px;
-        transform:translate(-50%,-50%); border:2px solid #161b26; border-radius:50%;
-        cursor:crosshair; transition:transform .12s ease, box-shadow .12s ease; }
-    .sd-chart-point:hover,.sd-chart-point:focus { z-index:2; transform:translate(-50%,-50%) scale(1.45);
-        outline:2px solid #fff; outline-offset:2px; }
-    .sd-chart-x-axis { display:flex; justify-content:space-between; color:#c0ccdc;
-        font:.82rem ui-monospace,SFMono-Regular,Consolas,monospace; }
+    .sd-chart-x-axis { display:flex; justify-content:space-between; margin-left:88px; color:var(--sustain-muted);
+        font:.75rem var(--sustain-mono); }
     .sd-chart-note { display:flex; flex-wrap:wrap; justify-content:space-between;
-        gap:.5rem; margin-top:.65rem; color:#b0bdcf; font-size:.82rem; }
-    .sd-chart-explanation { margin-top:.85rem; padding:.85rem;
-        border-top:1px solid #262c3a; color:#d5deeb; font-size:.9rem; line-height:1.65; }
-    .sd-breakdown { margin:.85rem 0; padding:1rem; border:1px solid #262c3a;
-        border-radius:10px; background:#161b26; }
+        gap:8px; margin-top:16px; color:var(--sustain-muted); font-size:.8125rem; }
+    .sd-chart-note strong { color:var(--sustain-text); font-weight:500; }
+    .sd-chart-explanation { margin-top:16px; padding-top:16px;
+        border-top:1px solid var(--sustain-border); color:var(--sustain-secondary); font-size:.875rem; line-height:1.65; }
+    .sd-breakdown { margin:16px 0; padding:20px; border:1px solid var(--sustain-border);
+        border-radius:12px; background:var(--sustain-surface); }
     .sd-breakdown-head { display:flex; justify-content:space-between; align-items:center;
-        flex-wrap:wrap; gap:.5rem; margin-bottom:.7rem; }
-    .sd-legend { display:flex; flex-wrap:wrap; gap:.7rem; color:#d5deeb; font-size:.8rem; }
-    .sd-legend-item { display:inline-flex; align-items:center; gap:.3rem; }
+        flex-wrap:wrap; gap:8px; margin-bottom:12px; }
+    .sd-legend { display:flex; flex-wrap:wrap; gap:12px; color:var(--sustain-secondary); font-size:.8125rem; }
+    .sd-legend-item { display:inline-flex; align-items:center; gap:6px; }
     .sd-legend-dot { display:inline-block; width:8px; height:8px; border-radius:50%; }
-    .sd-ledger { border-top:1px solid #262c3a; }
+    .sd-ledger { border-top:1px solid var(--sustain-border); }
     .sd-ledger-row { display:flex; align-items:flex-start; justify-content:space-between;
-        flex-wrap:wrap; gap:.45rem 1rem; padding:.75rem 0; border-bottom:1px solid #262c3a; }
+        flex-wrap:wrap; gap:8px 16px; padding:12px 0; border-bottom:1px solid var(--sustain-border); }
     .sd-ledger-left { min-width:0; flex:1; }
-    .sd-ledger-name { color:#f8fafc; font-size:.9rem; font-weight:700; }
-    .sd-ledger-desc { display:block; margin-top:.2rem; color:#b0bdcf; font-size:.82rem; line-height:1.6; }
-    .sd-ledger-value { color:#fff; font-size:.9rem; font-weight:800; white-space:nowrap; }
-    .sd-macro-conversions { display:flex; flex-wrap:wrap; gap:.4rem; padding:.6rem 0; }
-    .sd-conversion { padding:.28rem .5rem; border-radius:6px; background:#1e222d;
-        font:.8rem ui-monospace,SFMono-Regular,Consolas,monospace; }
+    .sd-ledger-name { color:var(--sustain-text); font-size:.9375rem; font-weight:500; }
+    .sd-ledger-desc { display:block; margin-top:4px; color:var(--sustain-secondary); font-size:.8125rem; line-height:1.6; }
+    .sd-ledger-value { color:var(--sustain-text); font-size:.9375rem; font-weight:500; white-space:nowrap;
+        font-variant-numeric:tabular-nums; }
+    .sd-macro-conversions { display:flex; flex-wrap:wrap; gap:8px; padding:12px 0; }
+    .sd-conversion { padding:4px 8px; border:1px solid var(--sustain-border); border-radius:6px;
+        background:var(--sustain-surface); font:.75rem var(--sustain-mono); }
     @media(max-width:760px) {
         .sd-profile-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
-        .sd-macro-grid { grid-template-columns:1fr; }
+        .sd-macro-grid, .sd-pillars { grid-template-columns:1fr; }
         .sd-budget-strip { grid-template-columns:repeat(2,minmax(0,1fr)); }
     }
     @media(max-width:430px) {
@@ -276,10 +265,10 @@ def _nutrition_section(targets, tdee, goal_delta):
         <section class="sd-section">
           <div class="sd-section-head">
             <div>
-              <h2 class="sd-heading">Daily Nutrition Targets</h2>
-              <div class="sd-muted">Your daily calorie goal and proportional macronutrient distribution</div>
+              <h2 class="sd-heading">Daily nutrition targets</h2>
+              <div class="sd-muted">Your calorie goal and how it splits across protein, carbs and fat</div>
             </div>
-            <span class="sd-kicker">4 · 4 · 9 Atwater energy split</span>
+            <span class="sd-kicker">4 · 4 · 9 kcal per gram</span>
           </div>
           <div class="sd-calorie-card">
             <div class="sd-calorie-head">
@@ -288,7 +277,6 @@ def _nutrition_section(targets, tdee, goal_delta):
                 <span class="sd-calorie-value">{_format_number(targets['calories'])}</span>
                 <span class="sd-calorie-subtitle">kcal per day · {_escape(badge)}</span>
               </div>
-              <span class="sd-status">Daily goal</span>
             </div>
             <div class="sd-track" aria-label="Calorie target compared with maintenance">
               <span class="sd-tick" style="left:{maintenance_tick:.2f}%;"
@@ -320,8 +308,8 @@ def _nutrition_section(targets, tdee, goal_delta):
     content += """
           </div>
           <div class="sd-budget-head">
-            <span class="sd-kicker">Suggested meal-slot macro budget</span>
-            <span class="sd-muted">A guide for planning meals in your Food Diary</span>
+            <span class="sd-kicker">Suggested budget per meal</span>
+            <span class="sd-muted">A guide for planning meals in your diary</span>
           </div>
           <div class="sd-budget-strip">
     """
@@ -331,9 +319,9 @@ def _nutrition_section(targets, tdee, goal_delta):
               <div class="sd-budget-name">{slot} · {share:.0%}</div>
               <div class="sd-budget-cal">{_format_number(targets['calories'] * share)} kcal</div>
               <div class="sd-budget-macros">
-                <span style="color:{COLORS['protein']}">P {round(targets['protein_g'] * share)}g</span> ·
-                <span style="color:{COLORS['carbs']}">C {round(targets['carbs_g'] * share)}g</span> ·
-                <span style="color:{COLORS['fat']}">F {round(targets['fat_g'] * share)}g</span>
+                P {round(targets['protein_g'] * share)}g ·
+                C {round(targets['carbs_g'] * share)}g ·
+                F {round(targets['fat_g'] * share)}g
               </div>
             </div>
         """
@@ -481,8 +469,8 @@ def _projection_markup(
           )}
           <div class="sd-chart-note">
             <strong>{weekly_change_label}</strong>
-            <span>Illustrative estimate at a {_format_number(daily_deficit)} kcal/day deficit.</span>
-            <span>Values are not a forecast or medical advice.</span>
+            <span>Illustrative estimate at a {_format_number(daily_deficit)} kcal/day deficit</span>
+            <span>Not a forecast or medical advice</span>
           </div>
           <div class="sd-chart-explanation">{explanation}</div>
         </div>
@@ -513,7 +501,7 @@ def _strategy_markup(profile, targets, tdee, goal_delta):
         if weight else "Based on your saved profile."
     )
     return f"""
-        <h2 class="sd-insight-title">Plan Strategy &amp; Tailored Guidance</h2>
+        <h2 class="sd-insight-title">How the plan works</h2>
         <p class="sd-copy">
           Your <strong>{_escape(profile.get('fitness_goal', 'selected goal'))}</strong>
           nutrition plan is based on your saved profile and estimated energy needs.
@@ -529,7 +517,7 @@ def _strategy_markup(profile, targets, tdee, goal_delta):
               cooking skill, diet preferences, and saved exclusions.</span></div>
         </div>
         <div class="sd-coaching">
-          <div class="sd-coaching-title">💡 Coaching &amp; estimate notes</div>
+          <div class="sd-coaching-title">About these estimates</div>
           <ul>
             <li>Energy and macro targets are estimates based on the information you provided.</li>
             <li>Activity estimates and step ranges may differ from your actual expenditure.</li>
@@ -597,7 +585,7 @@ def _tdee_markup(profile, targets, tdee, goal_delta):
         f"""
         <div class="sd-ledger-row">
           <div class="sd-ledger-left">
-            <span class="sd-ledger-name"><span style="color:{color}">●</span> {_escape(title)}</span>
+            <span class="sd-ledger-name"><i class="sd-legend-dot" style="background:{color};margin-right:8px"></i>{_escape(title)}</span>
             <span class="sd-ledger-desc">{_escape(description)}</span>
           </div>
           <span class="sd-ledger-value">{_format_number(tdee[key])} kcal</span>
@@ -616,7 +604,7 @@ def _tdee_markup(profile, targets, tdee, goal_delta):
     for name, key, color, factor in NUTRIENTS:
         kcal = targets[key] * factor
         conversions.append(
-            f'<span class="sd-conversion" style="color:{color}">'
+            f'<span class="sd-conversion">'
             f'{name[0]}: {kcal:,} ÷ {factor} = {targets[key]}g</span>'
         )
     macro_energy = sum(targets[key] * factor for _, key, _, factor in NUTRIENTS)
@@ -624,26 +612,26 @@ def _tdee_markup(profile, targets, tdee, goal_delta):
         <section class="sd-section">
           <div class="sd-section-head">
             <div>
-              <h2 class="sd-heading">How Your Calories &amp; Macros Were Calculated</h2>
-              <div class="sd-muted">Transparent estimate: TDEE = BMR + NEAT + EAT + TEF</div>
+              <h2 class="sd-heading">How your calories and macros are calculated</h2>
+              <div class="sd-muted">Total daily energy (TDEE) = BMR + NEAT + EAT + TEF</div>
             </div>
             <span class="sd-kicker">Maintenance {_format_number(tdee['tdee_kcal'])} kcal
               → Target {_format_number(targets['calories'])} kcal</span>
           </div>
           <div class="sd-breakdown">
             <div class="sd-breakdown-head">
-              <span class="sd-kicker">Daily energy expenditure composition</span>
+              <span class="sd-label">Where your daily energy goes</span>
               <span class="sd-legend">{legend}</span>
             </div>
-            <div style="display:flex;height:16px;overflow:hidden;border:1px solid #262c3a;
-              border-radius:999px;background:#0e1117">{segments}</div>
+            <div style="display:flex;gap:2px;height:12px;overflow:hidden;
+              border-radius:4px;background:var(--sustain-raised)">{segments}</div>
           </div>
           <div class="sd-ledger">
             {ledger_rows}
             <div class="sd-ledger-row">
               <div class="sd-ledger-left">
-                <span class="sd-ledger-name"><span style="color:{COLORS['calories']}">●</span>
-                  Goal adjustment &amp; macro energy</span>
+                <span class="sd-ledger-name"><i class="sd-legend-dot"
+                  style="background:{COLORS['calories']};margin-right:8px"></i>Goal adjustment and macro energy</span>
                 <span class="sd-ledger-desc">{adjustment} · Target {targets['calories']:,} kcal.
                   Macro conversion uses 4 kcal/g for protein and carbs, and 9 kcal/g for fat;
                   rounded values may differ slightly.</span>
@@ -659,16 +647,9 @@ def _tdee_markup(profile, targets, tdee, goal_delta):
 def _dashboard_header(username):
     return f"""
         <header class="sd-hero">
-          <div>
-            <div class="sd-brand">
-              <img class="sd-logo" src="{logo_data_uri()}" alt="Sustain logo">
-              <span class="sd-brand-name">Sustain</span>
-              <span class="sd-status">● Onboarding complete</span>
-            </div>
-            <h1 class="sd-title">Your Personalized Nutrition Plan</h1>
-            <div class="sd-subtitle">Welcome, {_escape(username)} ·
-              {_escape(date.today().strftime('%A, %d %B %Y'))} · Ready for meal planning</div>
-          </div>
+          <h1 class="sd-title">Nutrition plan</h1>
+          <div class="sd-subtitle">{_escape(username)} ·
+            {_escape(date.today().strftime('%A, %d %B %Y'))}</div>
         </header>
     """
 
@@ -710,7 +691,7 @@ def render_dashboard_page():
         estimate_column.html(_energy_estimate(tdee))
         with edit_column:
             if st.button(
-                "Edit onboarding inputs",
+                "Edit profile",
                 key="dashboard_edit",
                 icon=":material/edit:",
                 use_container_width=True,
@@ -727,7 +708,7 @@ def render_dashboard_page():
     )
     st.html(
         f'{DASHBOARD_CSS}<main class="sd"><section class="sd-section">'
-        '<h2 class="sd-insight-title">24-Week Expected Trajectory</h2>'
+        '<h2 class="sd-insight-title">Expected trajectory over 24 weeks</h2>'
         "</section></main>"
     )
     metric = st.segmented_control(

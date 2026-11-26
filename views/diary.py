@@ -23,28 +23,31 @@ ICON_BUTTON_WIDTH = 40
 DIARY_CARD_SHADOWS = """
 <style>
     .block-container {
-        max-width: none;
-        padding: 3.75rem clamp(1rem, 3vw, 2.5rem) 3rem;
+        max-width: 1440px;
+        padding: 2rem clamp(1rem, 3vw, 2rem) 3rem;
     }
     .st-key-diary_summary_card {
-        padding: 1rem 1.25rem;
+        padding: 20px 24px;
         border: 1px solid var(--sustain-border);
-        border-radius: 10px;
+        border-radius: 16px;
         background: var(--sustain-surface);
     }
+    .st-key-diary_summary_card strong {
+        font-weight: 500;
+    }
     .diary-over-target {
-        color: #ff4b4b;
+        color: var(--sustain-negative);
     }
     [class*="st-key-diary_meal_card_"] {
         border: 1px solid var(--sustain-border);
-        border-radius: 6px;
+        border-radius: 12px;
         background: var(--sustain-surface);
     }
     .st-key-diary_meal_breakfast,
     .st-key-diary_meal_lunch,
     .st-key-diary_meal_dinner,
     .st-key-diary_meal_snack {
-        padding: .3rem .75rem;
+        padding: 4px 12px;
     }
     .st-key-diary_meal_breakfast button,
     .st-key-diary_meal_lunch button,
@@ -66,35 +69,36 @@ DIARY_CARD_SHADOWS = """
         color: var(--sustain-text);
     }
     [class*="st-key-diary_foods_"] {
-        padding: .35rem .75rem;
+        padding: 4px 12px;
         border-top: 1px solid var(--sustain-border);
     }
     .diary-food-divider {
         border-top: 1px solid var(--sustain-border);
-        opacity: .4;
     }
     .diary-food-name {
         line-height: 1.2;
         overflow-wrap: anywhere;
     }
     .diary-food-quantity {
-        margin-top: .15rem;
+        margin-top: 4px;
         color: var(--sustain-muted);
-        font-size: .8rem;
+        font-size: .8125rem;
+        font-variant-numeric: tabular-nums;
         line-height: 1.2;
     }
     [class*="st-key-diary_addwrap_"] button {
-        min-height: 1.9rem;
-        padding: .18rem .87rem .18rem .72rem;
+        min-height: 32px;
+        padding: 4px 12px;
         white-space: nowrap;
         justify-content: center;
         border: 0;
-        border-radius: 999px;
-        background: #d92d38;
+        border-radius: 8px;
+        background: var(--sustain-accent);
         color: #fff;
-        font-size: .82rem;
-        font-weight: 600;
-        box-shadow: 0 2px 8px rgba(239, 68, 68, .3);
+        font-size: .8125rem;
+        font-weight: 500;
+        box-shadow: none;
+        transition: background-color .15s cubic-bezier(.22, 1, .36, 1);
     }
     [class*="st-key-diary_toggle_"] button:hover,
     [class*="st-key-diary_toggle_"] button:focus,
@@ -119,8 +123,8 @@ DIARY_CARD_SHADOWS = """
         padding: 0;
     }
     [class*="st-key-diary_toggle_"] button p {
-        font-size: 1.1rem;
-        font-weight: 700;
+        font-size: 1.0625rem;
+        font-weight: 500;
     }
     [class*="st-key-diary_edit_"] button,
     [class*="st-key-diary_delete_"] button {
@@ -128,11 +132,11 @@ DIARY_CARD_SHADOWS = """
         background: transparent;
     }
     [class*="st-key-diary_edit_"] button:hover {
-        background: rgba(52, 211, 153, .14);
+        background: var(--sustain-hover);
     }
     [class*="st-key-diary_delete_"] button:hover {
-        background: rgba(255, 75, 75, .14);
-        color: #ff4b4b;
+        background: var(--sustain-negative-soft);
+        color: var(--sustain-negative);
     }
     [class*="st-key-diary_edit_"] [data-testid="stPopoverButton"] {
         height: 40px;
@@ -157,7 +161,7 @@ DIARY_CARD_SHADOWS = """
     }
     [class*="st-key-diary_addwrap_"] button:hover {
         border: 0;
-        background: #c81e2a;
+        background: var(--sustain-accent-hover);
         color: #fff;
     }
     [data-testid="stPopoverBody"]:has([class*="st-key-diary_menu_"]) {
@@ -168,7 +172,7 @@ DIARY_CARD_SHADOWS = """
         padding: 0 5px !important;
         border: 1px solid var(--sustain-border);
         border-radius: 12px;
-        box-shadow: 0 12px 32px rgba(0, 0, 0, .25);
+        box-shadow: var(--sustain-popover-shadow);
     }
     [data-testid="stPopoverBody"] [class*="st-key-diary_menu_"] [data-testid="stButton"] button {
         min-height: 2rem;
@@ -186,22 +190,8 @@ DIARY_CARD_SHADOWS = """
         color: var(--sustain-text);
     }
     [class*="st-key-diary_menu_"] button span[data-testid="stIconMaterial"] {
-        font-size: 1.3rem;
-    }
-    [class*="st-key-diary_add_"][class*="_c-blue"] span[data-testid="stIconMaterial"] {
-        color: #38bdf8;
-    }
-    [class*="st-key-diary_add_"][class*="_c-purple"] span[data-testid="stIconMaterial"] {
-        color: #a78bfa;
-    }
-    [class*="st-key-diary_add_"][class*="_c-yellow"] span[data-testid="stIconMaterial"] {
-        color: #fbbf24;
-    }
-    [class*="st-key-diary_add_"][class*="_c-red"] span[data-testid="stIconMaterial"] {
-        color: #ff4b4b;
-    }
-    [class*="st-key-diary_add_"][class*="_c-green"] span[data-testid="stIconMaterial"] {
-        color: #34d399;
+        font-size: 1.125rem;
+        color: var(--sustain-muted);
     }
     .st-key-diary_meals_toolbar {
         padding-right: .75rem;
@@ -211,21 +201,21 @@ DIARY_CARD_SHADOWS = """
         height: 40px;
         min-height: 40px;
         padding: 0;
-        border: 1px solid transparent;
-        border-radius: 10px;
+        border: 1px solid var(--sustain-border);
+        border-radius: 8px;
     }
     .st-key-diary_request_meal button {
-        background: #c4510b;
-        color: white;
+        background: var(--sustain-hover);
+        color: var(--sustain-text);
     }
     .st-key-diary_request_meal button:hover {
-        background: #a9420a;
-        color: white;
+        border-color: var(--sustain-border);
+        background: var(--sustain-hover-strong);
+        color: var(--sustain-text);
     }
     .st-key-diary_request_meal [data-testid="stIconMaterial"] {
-        color: white;
-        font-size: 1.45rem;
-        transform: scale(.9);
+        color: var(--sustain-text);
+        font-size: 1.25rem;
     }
     .st-key-diary_expand_all button {
         border-color: var(--sustain-border);
@@ -267,7 +257,7 @@ def render_diary_page():
             width=155,
         )
     st.session_state[saved_date] = selected
-    title_col.title("Today's Diary" if selected == today else "Diary", anchor=False)
+    title_col.title("Today" if selected == today else selected.strftime("%A, %d %B"), anchor=False)
     log_date = selected.isoformat()
 
     targets = targets_service.recalibrate(user["id"])
@@ -306,11 +296,10 @@ def render_diary_page():
     ):
         st.html(
             f'<div style="display:flex;align-items:center;gap:.35rem;">'
-            f'<h2 style="margin:0;padding:0;color:var(--sustain-text);font-size:1.25rem;'
-            f'font-weight:700;">Meals</h2>'
-            f'<span style="padding:.12rem .42rem;border:1px solid var(--sustain-border);'
-            f'border-radius:999px;background:var(--sustain-surface);color:var(--sustain-muted);'
-            f'font-size:.78rem;">{len(entries)} '
+            f'<h2 style="margin:0;padding:0;color:var(--sustain-text);font-size:1.375rem;'
+            f'font-weight:500;">Meals</h2>'
+            f'<span style="margin-left:4px;color:var(--sustain-muted);'
+            f'font-size:.8125rem;font-variant-numeric:tabular-nums;">{len(entries)} '
             f'{"item" if len(entries) == 1 else "items"}</span></div>',
             width="content",
         )
@@ -346,7 +335,7 @@ def _render_progress(targets, totals):
     with st.container(border=True, key="diary_summary_card"):
         calories, calorie_target = totals["calories"], targets["calories"]
         title, remaining = st.columns([3, 1], vertical_alignment="center")
-        title.subheader("Daily Summary", anchor=False)
+        title.subheader("Daily summary", anchor=False)
         calorie_remaining = calorie_target - calories
         remaining_text = (
             f"{calorie_remaining:,} kcal"
@@ -415,8 +404,8 @@ def _progress_label_markup(label, percentage=None, *, over_target=False):
     percentage_markup = _progress_value_markup(percentage, over_target) if percentage is not None else ""
     return (
         '<div style="display:flex; align-items:baseline; justify-content:'
-        'space-between; gap:.5rem; margin-bottom:.35rem; color:var(--sustain-text); '
-        'font-size:.95rem;">'
+        'space-between; gap:8px; margin-bottom:8px; color:var(--sustain-text); '
+        'font-size:.9375rem; font-variant-numeric:tabular-nums;">'
         f"<strong>{label}</strong>{percentage_markup}</div>"
     )
 
@@ -427,10 +416,10 @@ def _progress_markup(value, target, color, label):
     return (
         f'<div role="progressbar" aria-label="{label}" '
         f'aria-valuenow="{percent:.0f}" aria-valuemin="0" aria-valuemax="100" '
-        'style="height:10px; overflow:hidden; border-radius:999px; '
-        'background:var(--sustain-border);">'
+        'style="height:8px; overflow:hidden; border-radius:4px; '
+        'background:var(--sustain-raised);">'
         f'<div style="width:{percent:.2f}%; height:100%; min-width:'
-        f'{"2px" if progress else "0"}; border-radius:999px; background:{color};">'
+        f'{"2px" if progress else "0"}; border-radius:4px; background:{color};">'
         "</div></div>"
     )
 
@@ -444,11 +433,11 @@ def _display_meal_slot(slot):
 
 
 ADD_MENU_OPTIONS = (
-    ("Search Food", "food", ":material/search:", "blue"),
-    ("Find a Recipe", "recipe", ":material/menu_book:", "purple"),
-    ("Saved Recipes", "saved", ":material/bookmark:", "yellow"),
-    ("Saved Foods", "saved_foods", ":material/favorite:", "red"),
-    ("Custom Food", "custom", ":material/edit_note:", "green"),
+    ("Search food", "food", ":material/search:", "blue"),
+    ("Find a recipe", "recipe", ":material/menu_book:", "purple"),
+    ("Saved recipes", "saved", ":material/bookmark:", "yellow"),
+    ("Saved foods", "saved_foods", ":material/favorite:", "red"),
+    ("Custom food", "custom", ":material/edit_note:", "green"),
 )
 
 
@@ -472,7 +461,7 @@ def _render_add_menu(slot):
                         st.rerun()
 
 
-@st.dialog("Saved Foods", width="medium")
+@st.dialog("Saved foods", width="medium")
 def _render_saved_foods_dialog(user_id, log_date):
     slot = st.session_state.get("diary_dialog_meal_slot", "Snack")
     st.caption(f"Foods you've logged before. Adding to {_display_meal_slot(slot)}.")
@@ -496,7 +485,7 @@ def _render_saved_foods_dialog(user_id, log_date):
                 st.rerun()
 
 
-@st.dialog("Custom Food", width="medium")
+@st.dialog("Custom food", width="medium")
 def _render_custom_food_dialog(user_id, log_date):
     slot = st.session_state.get("diary_dialog_meal_slot", "Snack")
     _render_quick_log(user_id, slot, log_date)
@@ -622,7 +611,7 @@ def _meal_summary_markup(totals, has_entries):
     )
     stats = " <span style='color:var(--sustain-muted)'>·</span> ".join(values)
     return (
-        f"<div style='text-align:left;color:{color};font-size:.8rem;"
+        f"<div style='text-align:left;color:{color};font-size:.8125rem;"
         f"font-variant-numeric:tabular-nums;line-height:1.4'>{stats}</div>"
     )
 

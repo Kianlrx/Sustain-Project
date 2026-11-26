@@ -14,7 +14,7 @@ from views.dashboard import _projected_weight
 LB_PER_KG = 2.2046226218
 # Within this many kcal of maintenance the expected weight is flat.
 MAINTENANCE_BAND_KCAL = 25
-GREEN, RED, BLUE = "#34d399", "#ff4b4b", "#38bdf8"
+GREEN, RED, BLUE = "#34d399", "#dc2a46", "#5aa9d6"
 # Red trend line: needs this many logs to smooth, fits this share of them at a time.
 TREND_MIN_LOGS = 6
 TREND_MIN_NEIGHBOURS = 5
@@ -30,10 +30,10 @@ WEIGHT_CSS = """
 <style>
     .block-container { padding-top: 1.5rem !important; }
     .st-key-weight_form, .st-key-weight_history {
-        padding: 1.1rem 1.25rem;
-        border: 1px solid #262d3d;
-        border-radius: 14px;
-        background: #161b24;
+        padding: 20px 24px;
+        border: 1px solid var(--sustain-border);
+        border-radius: 16px;
+        background: var(--sustain-surface);
     }
     .st-key-weight_form [data-testid="stForm"] {
         padding: 0;
@@ -43,15 +43,15 @@ WEIGHT_CSS = """
         min-height: 1.9rem;
         border: 0;
         background: transparent;
-        color: #64748b;
+        color: var(--sustain-muted);
     }
     .st-key-weight_history button:hover {
-        background: rgba(255, 75, 75, .14);
-        color: #ff4b4b;
+        background: var(--sustain-negative-soft);
+        color: var(--sustain-negative);
     }
     .st-key-weight_history [class*="st-key-weight_edit_"] button:hover {
-        background: rgba(52, 211, 153, .14);
-        color: #34d399;
+        background: var(--sustain-hover);
+        color: var(--sustain-text);
     }
     .st-key-weight_form { margin-bottom: 1.1rem; }
     .st-key-weight_history { width: 100%; }
@@ -61,9 +61,9 @@ WEIGHT_CSS = """
         gap:.65rem;
         padding-bottom:.65rem;
         margin-bottom:.85rem;
-        border-bottom:1px solid rgba(148,163,184,.18);
+        border-bottom:1px solid var(--sustain-border);
     }
-    .wt-history-count { color:#94a3b8; font-size:.82rem; }
+    .wt-history-count { color:var(--sustain-secondary); font-size:.82rem; }
     @keyframes wt-popup-expire {
         0%, 94% { opacity:1; transform:translateY(0); }
         100% { opacity:0; transform:translateY(-4px); visibility:hidden; }
@@ -73,10 +73,10 @@ WEIGHT_CSS = """
         max-width:80vw;
         margin:0 auto .45rem;
         padding:.55rem .7rem;
-        border:1px solid rgba(52,211,153,.4);
+        border:1px solid var(--sustain-border);
         border-radius:.5rem;
-        background:rgba(6,78,59,.9);
-        color:#d1fae5;
+        background:var(--sustain-surface);
+        color:var(--sustain-positive);
         font-size:.78rem;
         line-height:1.35;
         text-align:center;
@@ -84,48 +84,47 @@ WEIGHT_CSS = """
         animation:wt-popup-expire 5s linear forwards;
     }
     .wt-head { display:flex; align-items:center; gap:.7rem; flex-wrap:wrap; }
-    .wt-title { margin:0; font-size:1.9rem; font-weight:750; letter-spacing:-.02em; color:#f8fafc; }
-    .wt-sub { margin:.2rem 0 1rem; color:#94a3b8; font-size:.9rem; }
-    .wt-kpis { display:grid; grid-template-columns:repeat(4, 1fr); gap:.9rem; margin-bottom:1.1rem; }
+    .wt-title { margin:0; font-size:2rem; font-weight:500; color:var(--sustain-text); }
+    .wt-sub { margin:.2rem 0 1rem; color:var(--sustain-secondary); font-size:.9rem; }
+    .wt-kpis { display:grid; grid-template-columns:repeat(4, 1fr); gap:16px; margin-bottom:16px; }
     @media (max-width: 1100px) { .wt-kpis { grid-template-columns:repeat(2, 1fr); } }
-    .wt-kpi { display:flex; flex-direction:column; gap:.45rem; padding:1rem 1.15rem;
-        border:1px solid #262d3d; border-radius:12px; background:#161b24; }
+    .wt-kpi { display:flex; flex-direction:column; gap:.45rem; padding:20px;
+        border:1px solid var(--sustain-border); border-radius:12px; background:var(--sustain-surface); }
     .wt-kpi-top { display:flex; justify-content:space-between; align-items:center; gap:.5rem; }
-    .wt-kpi-label { color:#94a3b8; font-size:.8rem; font-weight:500; }
-    .wt-badge { padding:.1rem .55rem; border:1px solid #262d3d; border-radius:999px;
-        background:#1e222d; color:#94a3b8; font-size:.72rem; font-weight:650; }
-    .wt-badge.green { color:#34d399; background:rgba(52,211,153,.12); border-color:rgba(52,211,153,.28); }
-    .wt-badge.blue { color:#38bdf8; background:rgba(56,189,248,.12); border-color:rgba(56,189,248,.28); }
-    .wt-badge.red { color:#ff4b4b; background:rgba(255,75,75,.12); border-color:rgba(255,75,75,.28); }
-    .wt-kpi-value { color:#f8fafc; font-size:1.7rem; line-height:1.15; font-weight:750;
-        letter-spacing:-.02em; font-variant-numeric:tabular-nums; }
-    .wt-kpi-foot { display:flex; justify-content:space-between; gap:.5rem; color:#64748b;
+    .wt-kpi-label { color:var(--sustain-secondary); font-size:.8rem; font-weight:500; }
+    .wt-badge { padding:.1rem .55rem; border:1px solid var(--sustain-border); border-radius:4px;
+        background:transparent; color:var(--sustain-muted); font:.75rem var(--sustain-mono); }
+    .wt-badge.green { color:var(--sustain-positive); }
+    .wt-badge.blue { color:var(--sustain-info); }
+    .wt-badge.red { color:var(--sustain-negative); }
+    .wt-kpi-value { color:var(--sustain-text); font-size:1.75rem; line-height:1.15; font-weight:500; font-variant-numeric:tabular-nums; }
+    .wt-kpi-foot { display:flex; justify-content:space-between; gap:.5rem; color:var(--sustain-muted);
         font-size:.76rem; font-variant-numeric:tabular-nums; }
-    .wt-h { margin:0 0 .15rem; color:#f8fafc; font-size:1.05rem; font-weight:650; }
-    .wt-muted { color:#94a3b8; font-size:.82rem; }
+    .wt-h { margin:0 0 .15rem; color:var(--sustain-text); font-size:1.0625rem; font-weight:500; }
+    .wt-muted { color:var(--sustain-secondary); font-size:.82rem; }
     .st-key-weight_chart {
         margin-bottom: 1.1rem;
-        padding: 1.1rem 1.25rem;
-        border: 1px solid #262d3d;
-        border-radius: 14px;
-        background: #161b24;
+        padding: 20px 24px;
+        border: 1px solid var(--sustain-border);
+        border-radius: 16px;
+        background: var(--sustain-surface);
     }
     .wt-legend { display:flex; flex-wrap:wrap; gap:.6rem; margin:.2rem 0 .8rem; }
     .wt-legend span { display:inline-flex; align-items:center; gap:.5rem; padding:.28rem .7rem;
-        border:1px solid #262d3d; border-radius:8px; background:#1e222d;
-        color:#f8fafc; font-size:.78rem; font-weight:500; }
+        border:1px solid var(--sustain-border); border-radius:8px; background:transparent;
+        color:var(--sustain-secondary); font-size:.8125rem; font-weight:400; }
     .wt-dot { width:.65rem; height:.65rem; border-radius:50%; display:inline-block; }
     .wt-bar { width:1rem; height:3px; border-radius:2px; display:inline-block; }
     .wt-dots { width:1.1rem; border-top:3px dotted; display:inline-block; }
-    .wt-empty { padding:2.2rem 1rem; text-align:center; color:#94a3b8;
-        border:1px dashed #262d3d; border-radius:14px; background:#161b24; }
+    .wt-empty { padding:2.2rem 1rem; text-align:center; color:var(--sustain-secondary);
+        border:1px solid var(--sustain-border); border-radius:14px; background:var(--sustain-surface); }
     .wt-estimates { display:grid; grid-template-columns:repeat(3,1fr); margin:1rem 0;
-        border-top:1px solid #262d3d; border-bottom:1px solid #262d3d; }
+        border-top:1px solid var(--sustain-border); border-bottom:1px solid var(--sustain-border); }
     .wt-estimate { padding:.65rem .5rem; }
-    .wt-estimate + .wt-estimate { border-left:1px solid #262d3d; }
-    .wt-estimate-label { display:block; color:#94a3b8; font-size:.8rem; }
-    .wt-estimate-value { display:block; margin-top:.25rem; color:#f8fafc;
-        font-size:1.1rem; font-weight:800; font-variant-numeric:tabular-nums; }
+    .wt-estimate + .wt-estimate { border-left:1px solid var(--sustain-border); }
+    .wt-estimate-label { display:block; color:var(--sustain-secondary); font-size:.8rem; }
+    .wt-estimate-value { display:block; margin-top:.25rem; color:var(--sustain-text);
+        font-size:1.25rem; font-weight:500; font-variant-numeric:tabular-nums; }
 </style>
 """
 
@@ -286,16 +285,16 @@ def _weight_chart(entries, expected, unit, factor, start, end):
         axis=alt.Axis(
             format="%b %d",
             tickCount={"interval": "day", "step": 1},
-            labelColor="#64748b",
+            labelColor="#8a8a90",
             grid=False,
-            domainColor="#262d3d",
+            domainColor="rgba(138, 138, 144, .3)",
         ),
     )
     y = alt.Y(
         "weight:Q",
         title=f"Weight ({unit})",
         scale=alt.Scale(zero=False, nice=True, padding=12),
-        axis=alt.Axis(labelColor="#64748b", titleColor="#94a3b8", gridColor="#1e2433", domain=False),
+        axis=alt.Axis(labelColor="#8a8a90", titleColor="#8a8a90", gridColor="rgba(138, 138, 144, .15)", domain=False),
     )
     hover = alt.selection_point(on="pointerover", fields=["date"], empty=False)
 
@@ -311,7 +310,7 @@ def _weight_chart(entries, expected, unit, factor, start, end):
     )
     dots = (
         alt.Chart(logs)
-        .mark_circle(color=GREEN, stroke="#0e1117", strokeWidth=1.5, opacity=1)
+        .mark_circle(color=GREEN, strokeWidth=0, opacity=1)
         .encode(
             x=x,
             y=y,
@@ -334,12 +333,12 @@ def _weight_chart(entries, expected, unit, factor, start, end):
     )
     return (
         alt.layer(expected_line, average_line, dots, hover_targets)
-        .properties(height=340, background="#161b24")
+        .properties(height=340, background="transparent")
         .configure_view(stroke=None)
     )
 
 
-def _kpi(label, badge, badge_class, value, left, right, value_color="#f8fafc"):
+def _kpi(label, badge, badge_class, value, left, right, value_color="var(--sustain-text)"):
     return (
         '<div class="wt-kpi"><div class="wt-kpi-top">'
         f'<span class="wt-kpi-label">{label}</span>'
@@ -566,7 +565,7 @@ def render_weight_page():
                     "Period Change", "Last 30 days", "", show(period, signed=True),
                     f"{show(recent[0]['weight_kg'])} → {show(latest['weight_kg'])}",
                     f"{len(recent)} logs",
-                    value_color="#34d399" if period <= 0 else "#fbbf24",
+                    value_color="var(--sustain-positive)" if period <= 0 else "var(--sustain-caution)",
                 ),
                 _kpi(
                     "Rolling Average", "Last 7 logs", "red", show(avg7),
@@ -604,7 +603,7 @@ def render_weight_page():
             )
             date_col.markdown(f"**{display_date}**")
             weight_col.markdown(
-                f'<span style="color:#ff4b4b">●</span> {show(entry["weight_kg"])}',
+                f'<span style="color:var(--sustain-accent)">●</span> {show(entry["weight_kg"])}',
                 unsafe_allow_html=True,
             )
             before = previous[entry["id"]]
@@ -612,7 +611,7 @@ def render_weight_page():
                 change_col.caption("—")
             else:
                 diff = entry["weight_kg"] - before
-                color = "#34d399" if diff < 0 else "#fbbf24" if diff > 0 else "#94a3b8"
+                color = "var(--sustain-positive)" if diff < 0 else "var(--sustain-caution)" if diff > 0 else "var(--sustain-muted)"
                 change_col.markdown(
                     f'<span style="color:{color}">{show(diff, signed=True)}</span>',
                     unsafe_allow_html=True,

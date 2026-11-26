@@ -1,0 +1,41 @@
+# Light and dark themes. Viewers pick one from the menu at the top right
+# (or follow their system). Both share the logo red as the accent.
+# Page styles read matching colour tokens from services/branding.py.
+[theme]
+primaryColor = "#dc2a46"
+baseRadius = "8px"
+buttonRadius = "8px"
+font = "Figtree:https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600&display=swap, sans-serif"
+codeFont = "'JetBrains Mono':https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap, monospace"
+headingFontWeights = [500, 500, 500, 500, 500, 500]
+headingFontSizes = ["2rem", "1.375rem", "1.125rem"]
+
+[theme.dark]
+primaryColor = "#dc2a46"
+backgroundColor = "#141415"
+secondaryBackgroundColor = "#1c1c1e"
+textColor = "#ededed"
+borderColor = "#2a2a2d"
+linkColor = "#f0707f"
+greenColor = "#4cc38a"
+redColor = "#e5484d"
+
+[theme.dark.sidebar]
+backgroundColor = "#0f0f10"
+secondaryBackgroundColor = "#19191b"
+borderColor = "#232325"
+
+[theme.light]
+primaryColor = "#dc2a46"
+backgroundColor = "#fafafa"
+secondaryBackgroundColor = "#f0f0f1"
+textColor = "#171717"
+borderColor = "#e4e4e7"
+linkColor = "#b51e37"
+greenColor = "#16a34a"
+redColor = "#dc2626"
+
+[theme.light.sidebar]
+backgroundColor = "#f4f4f5"
+secondaryBackgroundColor = "#ebebec"
+borderColor = "#e4e4e7"
