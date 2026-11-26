@@ -37,6 +37,11 @@ jobs:
         run: |
           coverage run -a -m unittest discover -s tests -p "integration_*.py" -v 2>&1 | tee reports/integration-tests.txt
 
+      - name: Acceptance tests
+        # runs without coverage, so the timings show the app's real speed
+        run: |
+          python -m unittest discover -s tests -p "acceptance_*.py" -v 2>&1 | tee reports/acceptance-tests.txt
+
       - name: Coverage report
         if: always()  # still report coverage when a test fails
         run: |
