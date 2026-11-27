@@ -711,13 +711,18 @@ def render_dashboard_page():
         '<h2 class="sd-insight-title">Expected trajectory over 24 weeks</h2>'
         "</section></main>"
     )
-    metric = st.segmented_control(
-        "Trajectory metric",
-        ["Weight", "Calories"],
-        default="Weight",
-        key="dashboard_trajectory_metric",
-        label_visibility="collapsed",
-    )
+    with st.form("dashboard_trajectory_form", border=False):
+        metric_col, apply_col = st.columns([5, 1], vertical_alignment="center")
+        draft_metric = metric_col.segmented_control(
+            "Trajectory metric",
+            ["Weight", "Calories"],
+            default="Weight",
+            key="dashboard_trajectory_metric",
+            label_visibility="collapsed",
+        )
+        if apply_col.form_submit_button("Apply"):
+            st.session_state.dashboard_metric = draft_metric or "Weight"
+    metric = st.session_state.get("dashboard_metric", "Weight")
     st.html(
         f'{DASHBOARD_CSS}<main class="sd">'
         f'{_projection_markup(profile, goal_delta, metric or "Weight", targets["calories"])}'

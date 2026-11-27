@@ -333,8 +333,14 @@ def render_sidebar():
             render_logout_button()
 
 
-try:
+@st.cache_resource(show_spinner=False)
+def _initialize_database(database):
     db.init_db()
+    return True
+
+
+try:
+    _initialize_database(str(db.DB_PATH) if db.DB_PATH is not None else db.get_database_url())
 except db.DatabaseConfigurationError as exc:
     st.error(str(exc))
     st.stop()

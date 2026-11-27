@@ -452,70 +452,46 @@ def render_weight_page():
         first_day = date.fromisoformat(expected[0]["d"])
         last_day = date.fromisoformat(expected[-1]["d"])
 
-        available_ranges = _available_ranges(logged_days)
-        selected_range = st.session_state.get("weight_range", "All")
-        if selected_range not in available_ranges:
-            selected_range = "All"
-            st.session_state.pop("weight_window", None)
-        st.session_state.weight_range = selected_range
-        st.session_state.weight_range_allowed = selected_range
-
-        def pick_range():
-            range_label = st.session_state.weight_range or "All"
-            if range_label not in available_ranges:
-                st.session_state.weight_range = st.session_state.weight_range_allowed
-                return
-            st.session_state.weight_range_allowed = range_label
-            days = RANGES[range_label]
-            st.session_state.weight_window = (
-                (first_day if days is None else max(first_day, last_day - timedelta(days=days - 1))),
-                last_day,
-            )
-
-        disabled_range_positions = [
-            index + 1
-            for index, label in enumerate(RANGES)
-            if label not in available_ranges
-        ]
-        if disabled_range_positions:
-            selectors = ", ".join(
-                f'.st-key-weight_ranges [data-testid="stSegmentedControl"] '
-                f'button:nth-of-type({position})'
-                for position in disabled_range_positions
-            )
-            st.markdown(
-                f"<style>{selectors} {{ opacity:.38; cursor:not-allowed; "
-                "pointer-events:none; }</style>",
-                unsafe_allow_html=True,
-            )
-        with ranges:
-            st.container(key="weight_ranges").segmented_control(
-                "Range",
-                list(RANGES),
-                default="All",
-                key="weight_range",
-                on_change=pick_range,
-                label_visibility="collapsed",
-            )
-        if "weight_window" not in st.session_state:
-            pick_range()
-        st.session_state.weight_window = clamp_window(
-            *st.session_state.weight_window, first_day, last_day
+        window = clamp_window(
+            *st.session_state.get("weight_window_applied", (first_day, last_day)),
+            first_day, last_day,
         )
         if (last_day - first_day).days >= MIN_WINDOW_DAYS:
-            st.slider(
-                "Visible dates",
-                min_value=first_day,
-                max_value=last_day,
-                key="weight_window",
-                format="MMM D, YYYY",
-                label_visibility="collapsed",
+            if st.session_state.pop("weight_window_replacement", False):
+                st.session_state.pop("weight_window", None)
+            available_ranges = _available_ranges(logged_days)
+            disabled_selectors = ", ".join(
+                f'.st-key-weight_ranges [data-testid="stSegmentedControl"] button:nth-of-type({position})'
+                for position, label in enumerate(RANGES, 1)
+                if label not in available_ranges
             )
-            window_start, window_end = clamp_window(
-                *st.session_state.weight_window, first_day, last_day
-            )
-        else:
-            window_start, window_end = first_day, last_day
+            if disabled_selectors:
+                st.html(f"<style>{disabled_selectors} {{ opacity:.38; pointer-events:none; }}</style>")
+            with ranges, st.form("weight_range_form", border=False):
+                preset = st.container(key="weight_ranges").segmented_control(
+                    "Range", list(RANGES), default="All", label_visibility="collapsed",
+                )
+                if st.form_submit_button("Apply range") and (preset or "All") in available_ranges:
+                    days = RANGES[preset or "All"]
+                    start = first_day if days is None else max(first_day, last_day - timedelta(days=days - 1))
+                    st.session_state.weight_window_applied = clamp_window(start, last_day, first_day, last_day)
+                    st.session_state.weight_window_replacement = True
+                    st.rerun()
+            with st.form("weight_window_form", border=False):
+                slider_col, submit_col = st.columns([5, 1], vertical_alignment="center")
+                draft_window = slider_col.slider(
+                    "Visible dates",
+                    min_value=first_day,
+                    max_value=last_day,
+                    value=window,
+                    key="weight_window",
+                    format="MMM D, YYYY",
+                    label_visibility="collapsed",
+                )
+                if submit_col.form_submit_button("Apply dates"):
+                    window = clamp_window(*draft_window, first_day, last_day)
+                    st.session_state.weight_window_applied = window
+        window_start, window_end = window
         st.markdown(
             '<div class="wt-legend">'
             f'<span><i class="wt-dot" style="background:{GREEN}"></i>Individual weight log</span>'

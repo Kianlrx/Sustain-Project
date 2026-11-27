@@ -3,14 +3,13 @@
 # like, picks a meal slot, and gets the recipes that best fit that slot's budget.
 import os
 from html import escape
+from pathlib import Path
 
 import streamlit as st
 
 from services import db, preference_parser, recipe_finder
-from services.speech_input import speech_input
 
 STATE_KEY = "recipe_finder"
-PROMPT_KEY = "recipe_craving_input"
 
 PAGE_STYLES = """
 <style>
@@ -24,55 +23,6 @@ PAGE_STYLES = """
         font-variant-numeric: tabular-nums;
     }
     .finder-budget strong { color: var(--sustain-text); font-weight: 500; }
-    .st-key-finder_prompt textarea { font-size: 1.0625rem; }
-    [class*="st-key-finder_slot_row_"] {
-        padding: 4px 8px 4px 4px;
-        border: 1px solid var(--sustain-border);
-        border-radius: 10px;
-        background: var(--sustain-surface);
-    }
-    [class*="st-key-finder_slot_row_"]:has([class*="st-key-finder_pick_"] button[kind="primary"]) {
-        border-color: var(--sustain-accent);
-    }
-    [class*="st-key-finder_pick_"] button {
-        justify-content: flex-start;
-        border: 0;
-        background: transparent;
-        color: var(--sustain-text);
-        box-shadow: none;
-    }
-    [class*="st-key-finder_pick_"] button > div { justify-content: flex-start; }
-    [class*="st-key-finder_pick_"] button[kind="primary"],
-    [class*="st-key-finder_pick_"] button[kind="primary"]:hover {
-        background: transparent;
-        color: var(--sustain-text);
-        font-weight: 500;
-    }
-    [class*="st-key-finder_pick_"] [data-testid="stIconMaterial"],
-    .st-key-finder_generate [data-testid="stIconMaterial"],
-    .st-key-finder_back [data-testid="stIconMaterial"] {
-        color: var(--sustain-accent);
-    }
-    [class*="st-key-finder_minus_"] button,
-    [class*="st-key-finder_plus_"] button {
-        min-height: 30px;
-        height: 30px;
-        padding: 0;
-        border-radius: 8px;
-    }
-    .finder-slot-share {
-        min-width: 3.2rem;
-        color: var(--sustain-text);
-        text-align: center;
-        font-variant-numeric: tabular-nums;
-    }
-    .finder-slot-kcal {
-        min-width: 5.5rem;
-        color: var(--sustain-muted);
-        font-size: .8125rem;
-        text-align: right;
-        font-variant-numeric: tabular-nums;
-    }
     [class*="st-key-finder_result_"] {
         padding: 12px 16px;
         border: 1px solid var(--sustain-border);
@@ -126,11 +76,19 @@ def render_find_recipe_page(request):
             f'P {remaining["protein_g"]}g · C {remaining["carbs_g"]}g · F {remaining["fat_g"]}g</div>'
         )
 
-    _render_prompt()
-    _render_slots(state, targets)
-
-    if st.button("Find recipes", key="finder_submit", type="primary", icon=":material/search:"):
-        _search(state, targets, user)
+    submission = _search_form(
+        key="recipe_search_form",
+        data={
+            "craving": state.get("craving", ""),
+            "slot": state["slot"],
+            "split": state["split"],
+            "calories": targets["calories"],
+            "maxLength": preference_parser.MAX_PROMPT_LENGTH,
+        },
+        on_search_change=lambda: None,
+    ).search
+    if submission is not None:
+        _submit_search(submission, state, targets, user)
 
     _render_results(state)
 
@@ -139,61 +97,73 @@ def render_find_recipe_page(request):
         st.info("Recipe generation is coming soon. For now, pick one of the matches above.")
 
 
-def _render_prompt():
-    st.session_state.setdefault(PROMPT_KEY, "")
-    text_col, mic_col = st.columns([12, 1], vertical_alignment="bottom")
-    with mic_col:
-        spoken = speech_input(key="recipe_craving_microphone")
-    if isinstance(spoken, dict) and spoken.get("error"):
-        st.warning(spoken["error"])
-    elif isinstance(spoken, str) and spoken.strip():
-        st.session_state[PROMPT_KEY] = spoken.strip()
-    with text_col, st.container(key="finder_prompt"):
-        st.text_area(
-            "What do you feel like?",
-            placeholder="Indian food but not too spicy, and make sure it's vegan",
-            key=PROMPT_KEY,
-            height=96,
-            max_chars=preference_parser.MAX_PROMPT_LENGTH,
+
+def _search_html():
+    rows = "".join(
+        f'<div class="slot" data-slot="{slot}">'
+        f'<label><input type="radio" name="meal" value="{slot}" required> '
+        f'{"Snacks" if slot == "Snack" else slot}</label>'
+        f'<button type="button" data-change="-{recipe_finder.SPLIT_STEP}" aria-label="Less of the day for {slot.lower()}">&minus;</button>'
+        '<output class="share"></output>'
+        f'<button type="button" data-change="{recipe_finder.SPLIT_STEP}" aria-label="More of the day for {slot.lower()}">+</button>'
+        '<output class="budget"></output></div>'
+        for slot in recipe_finder.MEAL_SLOTS
+    )
+    return f"""
+        <form>
+            <div class="prompt">
+                <label>What do you feel like?
+                    <textarea name="craving" placeholder="Indian food but not too spicy, and make sure it&#39;s vegan"></textarea>
+                </label>
+                <button class="mic" type="button" aria-label="Speak your craving" title="Speak your craving">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+                        stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+                        <rect x="9" y="2" width="6" height="12" rx="3"/>
+                        <path d="M19 10v1a7 7 0 0 1-14 0v-1 M12 18v4 M8 22h8"/>
+                    </svg>
+                </button>
+            </div>
+            <small class="voice-status" role="status"></small>
+            <fieldset><legend>Which meal is it for?</legend>{rows}</fieldset>
+            <small class="total" hidden></small>
+            <button type="submit">Find recipes</button>
+        </form>
+    """
+
+
+_PATH = Path(__file__).resolve().parents[1] / "components" / "recipe_finder"
+_search_form = st.components.v2.component(
+    "sustain_recipe_search",
+    html=_search_html(),
+    css=(_PATH / "search.css").read_text(encoding="utf-8"),
+    js=(_PATH / "search.js").read_text(encoding="utf-8"),
+)
+
+
+def _submit_search(submission, state, targets, user):
+    if not isinstance(submission, dict):
+        return
+    craving = submission.get("craving")
+    slot = submission.get("slot")
+    split = submission.get("split")
+    if (
+        not isinstance(craving, str)
+        or len(craving) > preference_parser.MAX_PROMPT_LENGTH
+        or slot not in recipe_finder.MEAL_SLOTS
+        or not isinstance(split, dict)
+        or set(split) != set(recipe_finder.MEAL_SLOTS)
+        or any(
+            type(share) is not int or not 0 <= share <= 100 or share % recipe_finder.SPLIT_STEP
+            for share in split.values()
         )
+    ):
+        st.error("Check your meal shares and recipe preferences, then try again.")
+        return
+    state.update(slot=slot, split=split)
+    _search(state, targets, user, craving.strip())
 
 
-def _render_slots(state, targets):
-    st.markdown("**Which meal is it for?**")
-    split = state["split"]
-    for slot in recipe_finder.MEAL_SLOTS:
-        key = slot.lower()
-        selected = state["slot"] == slot
-        budget = recipe_finder.slot_budget(targets, split, slot)
-        with st.container(
-            key=f"finder_slot_row_{key}", horizontal=True, vertical_alignment="center", gap="small",
-        ):
-            if st.button(
-                "Snacks" if slot == "Snack" else slot,
-                key=f"finder_pick_{key}",
-                icon=":material/radio_button_checked:" if selected else ":material/radio_button_unchecked:",
-                type="primary" if selected else "secondary",
-                width="stretch",
-            ):
-                state["slot"] = slot
-                st.rerun()
-            if st.button("", key=f"finder_minus_{key}", icon=":material/remove:", width=34,
-                         help=f"Less of the day for {slot.lower()}"):
-                state["split"] = recipe_finder.adjust_split(split, slot, -recipe_finder.SPLIT_STEP)
-                st.rerun()
-            st.html(f'<span class="finder-slot-share">{split[slot]}%</span>', width="content")
-            if st.button("", key=f"finder_plus_{key}", icon=":material/add:", width=34,
-                         help=f"More of the day for {slot.lower()}"):
-                state["split"] = recipe_finder.adjust_split(split, slot, recipe_finder.SPLIT_STEP)
-                st.rerun()
-            st.html(f'<span class="finder-slot-kcal">{budget["calories"]:,} kcal</span>', width="content")
-    total = sum(split.values())
-    if total != 100:
-        st.caption(f"Your meals add up to {total}% of the day, not 100%.")
-
-
-def _search(state, targets, user):
-    craving = st.session_state.get(PROMPT_KEY, "").strip()
+def _search(state, targets, user, craving):
     slot = state["slot"]
     budget = recipe_finder.slot_budget(targets, state["split"], slot)
     if budget["calories"] <= 0:

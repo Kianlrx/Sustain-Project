@@ -58,31 +58,32 @@ def _render_targets(user_id):
     _render_target_explanation(db.get_profile(user_id), manual)
 
     with st.expander("Fine-tune targets by hand"):
-        # Start each box inside its limits: very large or very small users can
-        # have automatic targets outside them, which would crash the box.
-        calories, protein, carbs, fat = (
-            st.number_input(
-                f"{label} ({'kcal' if key == 'calories' else 'g'})",
-                low,
-                high,
-                min(high, max(low, int(current[key]))),
-                step=50 if key == "calories" else 1,
+        with st.form("manual_targets", border=False, enter_to_submit=False):
+            # Start each box inside its limits: very large or very small users can
+            # have automatic targets outside them, which would crash the box.
+            calories, protein, carbs, fat = (
+                st.number_input(
+                    f"{label} ({'kcal' if key == 'calories' else 'g'})",
+                    low,
+                    high,
+                    min(high, max(low, int(current[key]))),
+                    step=50 if key == "calories" else 1,
+                )
+                for key, (label, low, high) in TARGET_LIMITS.items()
             )
-            for key, (label, low, high) in TARGET_LIMITS.items()
-        )
-        left, right = st.columns(2)
-        if left.button("Save my targets"):
-            chosen = {"calories": calories, "protein_g": protein, "carbs_g": carbs, "fat_g": fat}
-            errors = validate_manual_targets(chosen)
-            for error in errors:
-                st.error(error)
-            if not errors:
-                db.save_targets(user_id, chosen, manual=True)
+            left, right = st.columns(2)
+            if left.form_submit_button("Save my targets"):
+                chosen = {"calories": calories, "protein_g": protein, "carbs_g": carbs, "fat_g": fat}
+                errors = validate_manual_targets(chosen)
+                for error in errors:
+                    st.error(error)
+                if not errors:
+                    db.save_targets(user_id, chosen, manual=True)
+                    st.rerun()
+            if manual and right.form_submit_button("Go back to automatic targets"):
+                db.save_targets(user_id, current, manual=False)
+                targets_service.recalibrate(user_id)
                 st.rerun()
-        if manual and right.button("Go back to automatic targets"):
-            db.save_targets(user_id, current, manual=False)
-            targets_service.recalibrate(user_id)
-            st.rerun()
 
 
 def _render_target_explanation(profile, manual):
@@ -180,29 +181,28 @@ def _render_profile_form(user_id, profile):
             value=session_count,
             step=1,
         )
-        if sessions_per_week:
-            session_type_col, duration_col = st.columns(2)
-            with session_type_col:
-                session_type = st.selectbox(
-                    "Main workout type and intensity",
-                    training_types,
-                    index=type_index,
-                    help=(
-                        "Representative MET values: weight training 3.5 (low), "
-                        "endurance 6.8 (medium), interval training 8.0 (high)."
-                    ),
-                )
-            with duration_col:
-                session_duration = st.number_input(
-                    "Average session duration (minutes)",
-                    min_value=10,
-                    max_value=240,
-                    value=max(
-                        10,
-                        min(240, int(primary_session.get("duration_minutes", 60))),
-                    ),
-                    step=5,
-                )
+        session_type_col, duration_col = st.columns(2)
+        with session_type_col:
+            session_type = st.selectbox(
+                "Main workout type and intensity",
+                training_types,
+                index=type_index,
+                help=(
+                    "Representative MET values: weight training 3.5 (low), "
+                    "endurance 6.8 (medium), interval training 8.0 (high)."
+                ),
+            )
+        with duration_col:
+            session_duration = st.number_input(
+                "Average session duration (minutes)",
+                min_value=10,
+                max_value=240,
+                value=max(
+                    10,
+                    min(240, int(primary_session.get("duration_minutes", 60))),
+                ),
+                step=5,
+            )
         occupation = st.selectbox(
             "Daily occupation movement",
             occupation_types,
@@ -279,10 +279,10 @@ def _render_profile_form(user_id, profile):
 
 
 def _render_change_password(user_id):
-    with st.expander("Change password"):
+    with st.expander("Change password"), st.form("password_form", border=False):
         current = st.text_input("Current password", type="password", key="pw_current")
         new = st.text_input("New password", type="password", key="pw_new")
-        if st.button("Change password"):
+        if st.form_submit_button("Change password"):
             if len(new) < 6:
                 st.error("The new password must be at least 6 characters.")
             elif db.change_password(user_id, current, new):

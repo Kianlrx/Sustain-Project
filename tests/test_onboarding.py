@@ -7,12 +7,29 @@ from views.onboarding import (
     _integer_input_warning,
     _measurement_warning,
     _normalize_allergens,
+    _onboarding_html,
     _parse_measurement,
     _truncate_input_value,
 )
 
 
 class OnboardingInputTests(unittest.TestCase):
+    def test_initial_markup_shows_default_bmi_and_includes_body_fat_control(self):
+        html = _onboarding_html()
+        self.assertIn("BMI 24.5", html)
+        self.assertIn('aria-controls="body-fat-detail"', html)
+        self.assertIn('<div id="body-fat-detail">', html)
+
+    def test_footer_contains_navigation_and_step_progress(self):
+        footer = _onboarding_html().split("<footer", 1)[1].split("</footer>", 1)[0]
+        self.assertIn('id="back"', footer)
+        self.assertIn('id="next"', footer)
+        self.assertIn("Step 1 of 3 &bull; Body Metrics", footer)
+        self.assertIn('<progress id="ob-progress" value="1" max="3"', footer)
+        self.assertNotIn("Maintenance TDEE", footer)
+        self.assertNotIn('id="target-label"', footer)
+        self.assertNotIn("ob-macro", footer)
+
     def test_height_truncates_more_than_two_decimal_places(self):
         self.assertEqual(_parse_measurement("175.239", "Height (cm)", 100, 250), 175.23)
 

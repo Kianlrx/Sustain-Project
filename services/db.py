@@ -216,7 +216,7 @@ def change_password(user_id, current_password, new_password):
 
 # ---- Profile and targets (SCRUM-89, 94, 95) ----
 
-def save_profile(user_id, profile):
+def save_profile(user_id, profile, *, complete_onboarding=False):
     """Save the questionnaire answers as a dict (e.g. dataclasses.asdict(user_profile))."""
     with get_connection() as conn:
         conn.execute(
@@ -224,6 +224,8 @@ def save_profile(user_id, profile):
             "ON CONFLICT(user_id) DO UPDATE SET profile_json = excluded.profile_json",
             (user_id, json.dumps(profile)),
         )
+        if complete_onboarding:
+            conn.execute("UPDATE users SET onboarding_complete = 1 WHERE id = ?", (user_id,))
 
 
 def get_profile(user_id):
