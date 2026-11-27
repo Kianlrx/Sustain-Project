@@ -17,9 +17,9 @@ LB_PER_KG = 2.2046226218
 MAINTENANCE_BAND_KCAL = 25
 GREEN, RED, BLUE = "#34d399", "#dc2a46", "#5aa9d6"
 # Red trend line: needs this many logs to smooth, fits this share of them at a time.
-TREND_MIN_LOGS = 6
-TREND_MIN_NEIGHBOURS = 5
-TREND_SHARE = 0.05
+TREND_MIN_NEIGHBOURS = 4
+TREND_SHARE = 0.24
+TREND_WEIGH_IN_PULL = 0.4
 DOT_HIT_TARGET_SIZE = 300
 # The chart can never be zoomed in past this many days (or out past the logged dates).
 MIN_WINDOW_DAYS = 7
@@ -102,6 +102,7 @@ WEIGHT_CSS = """
     .wt-kpi-foot { display:flex; justify-content:space-between; gap:.5rem; color:var(--sustain-muted);
         font-size:.76rem; font-variant-numeric:tabular-nums; }
     .wt-h { margin:0 0 .15rem; color:var(--sustain-text); font-size:1.0625rem; font-weight:500; }
+    .st-key-weight_chart .wt-h { font-size:1.1875rem; }
     .wt-muted { color:var(--sustain-secondary); font-size:.82rem; }
     .st-key-weight_chart {
         margin-bottom: 1.1rem;
@@ -152,13 +153,19 @@ def expected_weights(start_date, start_kg, end_date, daily_delta_kcal):
 
 
 def trend_line(entries):
-    """A smoothed weight (kg) for every log: a local straight-line fit over the
-    nearest logs, so the red line follows the dots and passes through them
-    when there are too few logs to smooth."""
+    """Fit a straight line for small samples and smooth larger samples locally."""
     weights = [e["weight_kg"] for e in entries]
-    if len(entries) < TREND_MIN_LOGS:
+    if len(entries) <= 2:
         return weights
     days = [date.fromisoformat(e["log_date"]).toordinal() for e in entries]
+    if len(entries) < TREND_MIN_NEIGHBOURS:
+        mean_day = sum(days) / len(days)
+        mean_weight = sum(weights) / len(weights)
+        offsets = [day - mean_day for day in days]
+        spread = sum(offset ** 2 for offset in offsets)
+        covariance = sum(offset * (weight - mean_weight) for offset, weight in zip(offsets, weights))
+        slope = covariance / spread if spread else 0
+        return [mean_weight + slope * offset for offset in offsets]
     neighbours = max(TREND_MIN_NEIGHBOURS, round(len(entries) * TREND_SHARE))
     fitted = []
     for day in days:
@@ -190,25 +197,23 @@ def clamp_window(start, end, first, last):
     return start, end
 
 
-def _available_ranges(logged_days):
-    thresholds = {"1M": 7, "6M": 30, "1Y": 183}
-    return [
-        label
-        for label in RANGES
-        if label == "All"
-        or (label == "7D" and logged_days >= MIN_WINDOW_DAYS - 1)
-        or (label in thresholds and logged_days > thresholds[label])
-    ]
+def _preset_window(preset, first, last, latest_log):
+    days = RANGES[preset]
+    if days is None:
+        return first, last
+    if preset == "1Y":
+        year = latest_log.year - 1
+        day = 28 if (latest_log.month, latest_log.day) == (2, 29) else latest_log.day
+        return latest_log.replace(year=year, day=day), latest_log
+    return latest_log - timedelta(days=days - 1), latest_log
 
 
-def _line_window(data, value_column, line_start, line_end, stop_at_last_value=False):
-    """Extend a line close to the window edges, optionally stopping at its last value."""
+def _line_window(data, value_column, line_start, line_end):
+    """Extend a line close to the window edges."""
     if data.empty:
         return data
 
     values = data.set_index("date")[value_column].sort_index()
-    if stop_at_last_value:
-        line_end = min(line_end, values.index[-1])
     if line_end < line_start:
         return data.iloc[0:0]
     dates = values.index.union(pd.DatetimeIndex([line_start, line_end]))
@@ -244,15 +249,25 @@ def _line_window(data, value_column, line_start, line_end, stop_at_last_value=Fa
     )
 
 
-def _weight_chart(entries, expected, unit, factor, start, end):
+def _weight_chart(entries, expected, unit, factor, start, end, *, connect_weigh_ins=False):
     """Altair chart of [start, end]: green log dots, red trend, blue dotted expected."""
+    first_date, last_date = start.isoformat(), end.isoformat()
+    visible_entries = [entry for entry in entries if first_date <= entry["log_date"] <= last_date]
+    previous = max(
+        (entry for entry in entries if entry["log_date"] < first_date),
+        key=lambda entry: entry["log_date"],
+        default=None,
+    )
+    fit_entries = [previous, *visible_entries] if previous is not None else visible_entries
     logs = pd.DataFrame(
         {
-            "date": pd.to_datetime([e["log_date"] for e in entries]),
-            "weight": [e["weight_kg"] * factor for e in entries],
-            "average": [a * factor for a in trend_line(entries)],
-            "note": [e["note"] for e in entries],
+            "date": pd.to_datetime([e["log_date"] for e in visible_entries]),
+            "weight": [e["weight_kg"] * factor for e in visible_entries],
+            "note": [e["note"] for e in visible_entries],
         }
+    )
+    logs["weight_label"] = logs["weight"].map(
+        lambda weight: f"{weight:.1f}".rstrip("0").rstrip(".") + unit
     )
     plan = pd.DataFrame(
         {
@@ -266,16 +281,32 @@ def _weight_chart(entries, expected, unit, factor, start, end):
     edge_gap = (domain_end - domain_start) * LINE_EDGE_GAP_FRACTION
     line_start = domain_start + edge_gap
     line_end = domain_end - edge_gap
-    trend = logs.set_index("date")["average"].sort_index()
-    average_logs = _line_window(
-        trend.rename_axis("date").reset_index(),
-        "average",
-        line_start,
-        line_end,
-        stop_at_last_value=True,
+    trend_weights = (
+        [entry["weight_kg"] for entry in fit_entries]
+        if connect_weigh_ins else trend_line(fit_entries)
     )
+    if not connect_weigh_ins:
+        # Keep the fitted curve while pulling each point toward its actual weigh-in.
+        trend_weights = [
+            fitted + TREND_WEIGH_IN_PULL * (entry["weight_kg"] - fitted)
+            for entry, fitted in zip(fit_entries, trend_weights)
+        ]
+    trend = pd.DataFrame({
+        "date": pd.to_datetime([entry["log_date"] for entry in fit_entries]),
+        "average": [weight * factor for weight in trend_weights],
+    })
+    if visible_entries:
+        trend_start = line_start
+        if previous is None and first_date < visible_entries[0]["log_date"]:
+            trend_start = max(trend_start, trend["date"].min())
+        trend = _line_window(trend, "average", trend_start, trend["date"].max())
+    else:
+        trend = trend.iloc[0:0]
+
+    plan_start = plan["date"].min()
+    if start_ts < plan_start:
+        line_start = max(line_start, plan_start)
     plan = _line_window(plan, "weight", line_start, line_end)
-    logs = logs[logs["date"].between(start_ts, end_ts)]
 
     x = alt.X(
         "date:T",
@@ -285,7 +316,7 @@ def _weight_chart(entries, expected, unit, factor, start, end):
         ),
         axis=alt.Axis(
             format="%b %d",
-            tickCount={"interval": "day", "step": 1},
+            tickCount={"interval": "month" if (end - start).days > 92 else "day", "step": 1},
             labelColor="#8a8a90",
             grid=False,
             domainColor="rgba(138, 138, 144, .3)",
@@ -305,8 +336,11 @@ def _weight_chart(entries, expected, unit, factor, start, end):
         .encode(x=x, y=y)
     )
     average_line = (
-        alt.Chart(average_logs)
-        .mark_line(color=RED, strokeWidth=2.4, clip=True)
+        alt.Chart(trend)
+        .mark_line(
+            color=RED, strokeWidth=2.4, clip=True,
+            interpolate="monotone" if not connect_weigh_ins else "linear",
+        )
         .encode(x=x, y=alt.Y("average:Q", scale=alt.Scale(zero=False, nice=True, padding=12)))
     )
     dots = (
@@ -326,7 +360,7 @@ def _weight_chart(entries, expected, unit, factor, start, end):
             y=y,
             tooltip=[
                 alt.Tooltip("date:T", title="Date", format="%a, %b %d, %Y"),
-                alt.Tooltip("weight:Q", title=f"Weight ({unit})", format=".1f"),
+                alt.Tooltip("weight_label:N", title="Weight"),
                 alt.Tooltip("note:N", title="Note"),
             ],
         )
@@ -426,17 +460,12 @@ def render_weight_page():
 
     if entries:
         first, latest = entries[0], entries[-1]
-        logged_days = (
-            date.fromisoformat(latest["log_date"])
-            - date.fromisoformat(first["log_date"])
-        ).days
         end_date = max(date.fromisoformat(latest["log_date"]), date.today())
         expected = expected_weights(
             date.fromisoformat(first["log_date"]), first["weight_kg"], end_date, goal_delta
         )
     else:
         first = latest = None
-        logged_days = 0
         end_date = date.today() + timedelta(weeks=24)
         expected = expected_weights(
             date.today(), profile["weight_kg"], end_date, goal_delta
@@ -452,56 +481,58 @@ def render_weight_page():
         first_day = date.fromisoformat(expected[0]["d"])
         last_day = date.fromisoformat(expected[-1]["d"])
 
+        latest_log = date.fromisoformat(latest["log_date"]) if latest else date.today()
+
+        def select_range():
+            preset = st.session_state.weight_range_preset or "All"
+            selected = _preset_window(preset, first_day, last_day, latest_log)
+            st.session_state.weight_window = selected
+            st.session_state.weight_window_applied = selected
+
+        with ranges:
+            preset = st.segmented_control(
+                "Range", list(RANGES), default="All", key="weight_range_preset",
+                on_change=select_range, label_visibility="collapsed",
+            )
+        preset_window = _preset_window(preset or "All", first_day, last_day, latest_log)
+        slider_start = min(first_day, preset_window[0])
         window = clamp_window(
             *st.session_state.get("weight_window_applied", (first_day, last_day)),
-            first_day, last_day,
+            slider_start, last_day,
         )
-        if (last_day - first_day).days >= MIN_WINDOW_DAYS:
-            if st.session_state.pop("weight_window_replacement", False):
-                st.session_state.pop("weight_window", None)
-            available_ranges = _available_ranges(logged_days)
-            disabled_selectors = ", ".join(
-                f'.st-key-weight_ranges [data-testid="stSegmentedControl"] button:nth-of-type({position})'
-                for position, label in enumerate(RANGES, 1)
-                if label not in available_ranges
+        if (last_day - slider_start).days >= MIN_WINDOW_DAYS:
+            if "weight_window" in st.session_state:
+                st.session_state.weight_window = clamp_window(
+                    *st.session_state.weight_window, slider_start, last_day,
+                )
+            else:
+                st.session_state.weight_window = window
+            window = st.slider(
+                "Visible dates",
+                min_value=slider_start,
+                max_value=last_day,
+                key="weight_window",
+                format="MMM D, YYYY",
+                label_visibility="collapsed",
             )
-            if disabled_selectors:
-                st.html(f"<style>{disabled_selectors} {{ opacity:.38; pointer-events:none; }}</style>")
-            with ranges, st.form("weight_range_form", border=False):
-                preset = st.container(key="weight_ranges").segmented_control(
-                    "Range", list(RANGES), default="All", label_visibility="collapsed",
-                )
-                if st.form_submit_button("Apply range") and (preset or "All") in available_ranges:
-                    days = RANGES[preset or "All"]
-                    start = first_day if days is None else max(first_day, last_day - timedelta(days=days - 1))
-                    st.session_state.weight_window_applied = clamp_window(start, last_day, first_day, last_day)
-                    st.session_state.weight_window_replacement = True
-                    st.rerun()
-            with st.form("weight_window_form", border=False):
-                slider_col, submit_col = st.columns([5, 1], vertical_alignment="center")
-                draft_window = slider_col.slider(
-                    "Visible dates",
-                    min_value=first_day,
-                    max_value=last_day,
-                    value=window,
-                    key="weight_window",
-                    format="MMM D, YYYY",
-                    label_visibility="collapsed",
-                )
-                if submit_col.form_submit_button("Apply dates"):
-                    window = clamp_window(*draft_window, first_day, last_day)
-                    st.session_state.weight_window_applied = window
+            window = clamp_window(*window, slider_start, last_day)
+            st.session_state.weight_window_applied = window
         window_start, window_end = window
+        connect_weigh_ins = preset == "7D" and window == preset_window
+        trend_label = "Connected weigh-ins" if connect_weigh_ins else "Average weight trend"
         st.markdown(
             '<div class="wt-legend">'
             f'<span><i class="wt-dot" style="background:{GREEN}"></i>Individual weight log</span>'
-            f'<span><i class="wt-bar" style="background:{RED}"></i>Average weight trend</span>'
+            f'<span><i class="wt-bar" style="background:{RED}"></i>{trend_label}</span>'
             f'<span><i class="wt-dots" style="border-color:{BLUE}"></i>Expected weight</span>'
             "</div>",
             unsafe_allow_html=True,
         )
         st.altair_chart(
-            _weight_chart(entries, expected, unit, factor, window_start, window_end),
+            _weight_chart(
+                entries, expected, unit, factor, window_start, window_end,
+                connect_weigh_ins=connect_weigh_ins,
+            ),
             use_container_width=True,
             theme=None,
         )

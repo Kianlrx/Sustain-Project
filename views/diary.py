@@ -193,20 +193,19 @@ DIARY_CARD_SHADOWS = """
         font-size: 1.125rem;
         color: var(--sustain-muted);
     }
-    .st-key-diary_meals_toolbar {
-        padding-right: .75rem;
-    }
-    .st-key-diary_request_meal button,
-    .st-key-diary_expand_all button {
-        height: 40px;
-        min-height: 40px;
-        padding: 0;
-        border: 1px solid var(--sustain-border);
-        border-radius: 8px;
-    }
     .st-key-diary_request_meal button {
-        background: var(--sustain-hover);
+        min-height: 38px;
+        padding: 4px 10px;
+        gap: 6px;
+        border: 1px solid var(--sustain-border-strong);
+        border-radius: 8px;
+        background: var(--sustain-raised);
         color: var(--sustain-text);
+        white-space: nowrap;
+    }
+    .st-key-diary_request_meal button p {
+        font-size: .875rem;
+        font-weight: 600;
     }
     .st-key-diary_request_meal button:hover {
         border-color: var(--sustain-border);
@@ -214,13 +213,10 @@ DIARY_CARD_SHADOWS = """
         color: var(--sustain-text);
     }
     .st-key-diary_request_meal [data-testid="stIconMaterial"] {
+        flex-shrink: 0;
         color: var(--sustain-text);
-        font-size: 1.25rem;
-    }
-    .st-key-diary_expand_all button {
-        border-color: var(--sustain-border);
-        background: var(--sustain-hover);
-        color: var(--sustain-text);
+        font-size: 1.5rem;
+        line-height: 1;
     }
 </style>
 """
@@ -247,7 +243,7 @@ def render_diary_page():
     saved_date = f"diary_selected_date_{user['id']}"
     picker_key = f"diary_date_picker_{user['id']}"
     st.session_state.setdefault(picker_key, st.session_state.get(saved_date, today))
-    with date_col, st.form("diary_date_form", border=False), st.container(
+    with date_col, st.container(
         key="diary_date", horizontal=True, horizontal_alignment="right", vertical_alignment="center",
     ):
         selected = st.date_input(
@@ -255,9 +251,10 @@ def render_diary_page():
             key=picker_key, format="DD/MM/YYYY", label_visibility="collapsed",
             width=155,
         )
-        if st.form_submit_button("Go") and selected is not None:
-            st.session_state[saved_date] = selected
-    selected = st.session_state.get(saved_date, today)
+    if selected is None:
+        selected = st.session_state.get(saved_date, today)
+    else:
+        st.session_state[saved_date] = selected
     title_col.title("Today" if selected == today else selected.strftime("%A, %d %B"), anchor=False)
     log_date = selected.isoformat()
 
@@ -289,11 +286,6 @@ def render_diary_page():
     elif active_dialog == "custom":
         _render_custom_food_dialog(user["id"], log_date)
 
-    expanded_keys = [_meal_expanded_key(slot) for slot in MEAL_SLOTS]
-    for key in expanded_keys:
-        st.session_state.setdefault(key, False)
-    all_expanded = all(st.session_state[key] for key in expanded_keys)
-
     with st.container(
         key="diary_meals_toolbar", horizontal=True, horizontal_alignment="distribute",
         vertical_alignment="center", gap="small",
@@ -307,25 +299,13 @@ def render_diary_page():
             f'{"item" if len(entries) == 1 else "items"}</span></div>',
             width="content",
         )
-        with st.container(horizontal=True, vertical_alignment="center", width="content", gap="small"):
-            with st.container(
-                horizontal=True, horizontal_alignment="center", width=ADD_COLUMN_WIDTH,
-            ):
-                if st.button(
-                    "", key="diary_request_meal", icon=":material/chef_hat:",
-                    width=72, type="primary", help="Find a recipe",
-                ):
-                    _open_find_recipe(
-                        recipe_finder.default_slot(datetime.now().hour), targets, remaining, log_date,
-                    )
-            if st.button(
-                "", key="diary_expand_all",
-                icon=":material/arrow_upward:" if all_expanded else ":material/arrow_downward:",
-                width=ICON_BUTTON_WIDTH,
-            ):
-                for key in expanded_keys:
-                    st.session_state[key] = not all_expanded
-                st.rerun()
+        if st.button(
+            "Find a recipe", key="diary_request_meal", icon=":material/chef_hat:",
+            width="content",
+        ):
+            _open_find_recipe(
+                recipe_finder.default_slot(datetime.now().hour), targets, remaining, log_date,
+            )
 
     for slot in MEAL_SLOTS:
         slot_entries = [entry for entry in entries if entry["meal_slot"] == slot]
@@ -499,7 +479,7 @@ def _render_meal_slot(user_id, log_date, slot, entries):
     }
     slot_key = slot.lower()
     expanded_key = _meal_expanded_key(slot)
-    expanded = st.session_state[expanded_key]
+    expanded = st.session_state.get(expanded_key, False)
     meal_label = _display_meal_slot(slot)
     with st.container(key=f"diary_meal_card_{slot_key}", gap=None):
         with st.container(
