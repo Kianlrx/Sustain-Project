@@ -128,8 +128,8 @@ class DiaryQuantityTests(unittest.TestCase):
         app.session_state.user = self.user
         app.run()
         self.assertFalse(app.exception)
-        app.date_input(key=f"diary_date_picker_{user_id}").set_value(historical)
-        next(button for button in app.button if button.label == "Go").click().run()
+        app.date_input(key=f"diary_date_picker_{user_id}").set_value(historical).run()
+        self.assertEqual(app.title[0].value, historical.strftime("%A, %d %B"))
         self.assertFalse(app.exception)
         app.button(key="diary_toggle_lunch").click().run()
         self.assertFalse(app.exception)

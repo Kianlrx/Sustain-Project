@@ -1,11 +1,11 @@
 import os
 import tempfile
 import unittest
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 
 from services import db
 from views.weight import (
-    _available_ranges,
+    _preset_window,
     _weight_chart,
     clamp_window,
     expected_weights,
@@ -46,12 +46,27 @@ class ExpectedWeightTests(unittest.TestCase):
         for entry, value in zip(entries, trend_line(entries)):
             self.assertLess(abs(value - entry["weight_kg"]), 0.6)
 
+    def test_smoothing_reduces_day_to_day_swings(self):
+        entries = [
+            {"log_date": date(2026, 1, day).isoformat(), "weight_kg": 80 + (-1) ** day}
+            for day in range(1, 25)
+        ]
+        actual = [entry['weight_kg'] for entry in entries]
+        smoother = trend_line(entries)
+        actual_swings = sum(abs(right - left) for left, right in zip(actual, actual[1:]))
+        smoother_swings = sum(abs(right - left) for left, right in zip(smoother, smoother[1:]))
+        self.assertLess(smoother_swings, actual_swings)
+
     def test_trend_with_few_logs_passes_through_them(self):
         entries = [
             {"log_date": "2026-01-01", "weight_kg": 80.0, "note": ""},
             {"log_date": "2026-01-09", "weight_kg": 78.0, "note": ""},
         ]
         self.assertEqual(trend_line(entries), [80.0, 78.0])
+
+    def test_year_preset_extends_before_first_log_and_ends_at_latest(self):
+        first, latest, today = date(2026, 11, 1), date(2026, 11, 9), date(2026, 11, 27)
+        self.assertEqual(_preset_window("1Y", first, today, latest), (date(2025, 11, 9), latest))
 
     def test_window_is_clamped_to_logged_dates(self):
         first, last = date(2026, 1, 1), date(2026, 3, 1)
@@ -67,16 +82,6 @@ class ExpectedWeightTests(unittest.TestCase):
         self.assertEqual(end, last)
         self.assertEqual((end - start).days, 6)
 
-    def test_ranges_are_available_only_when_log_history_covers_them(self):
-        self.assertEqual(_available_ranges(0), ["All"])
-        self.assertEqual(_available_ranges(6), ["7D", "All"])
-        self.assertEqual(_available_ranges(7), ["7D", "All"])
-        self.assertEqual(_available_ranges(8), ["7D", "1M", "All"])
-        self.assertEqual(_available_ranges(30), ["7D", "1M", "All"])
-        self.assertEqual(_available_ranges(31), ["7D", "1M", "6M", "All"])
-        self.assertEqual(_available_ranges(183), ["7D", "1M", "6M", "All"])
-        self.assertEqual(_available_ranges(184), ["7D", "1M", "6M", "1Y", "All"])
-
     def test_chart_has_expected_trend_and_dot_layers(self):
         entries = [
             {"log_date": "2026-01-01", "weight_kg": 80.0, "note": ""},
@@ -86,10 +91,17 @@ class ExpectedWeightTests(unittest.TestCase):
         spec = _weight_chart(
             entries, expected, "kg", 1.0, date(2026, 1, 1), date(2026, 1, 2)
         ).to_dict()
+        tooltip_layer = spec["layer"][3]
+        tooltip = tooltip_layer["encoding"]["tooltip"]
+        self.assertEqual(tooltip[1]["title"], "Weight")
+        self.assertEqual(tooltip[1]["field"], "weight_label")
+        tooltip_rows = spec["datasets"][tooltip_layer["data"]["name"]]
+        self.assertEqual([row["weight_label"] for row in tooltip_rows], ["80kg", "79.5kg"])
         marks = [layer["mark"] for layer in spec["layer"]]
         self.assertEqual(marks[0]["strokeDash"], [1, 7])
         self.assertTrue(marks[0]["clip"])
         self.assertTrue(marks[1]["clip"])
+        self.assertEqual(marks[1]["interpolate"], "monotone")
         self.assertEqual(marks[2]["color"], "#34d399")
         self.assertEqual(
             spec["layer"][0]["encoding"]["x"]["scale"]["domain"],
@@ -116,10 +128,10 @@ class ExpectedWeightTests(unittest.TestCase):
         spec = _weight_chart([], expected, "kg", 1.0, today, today + timedelta(days=7)).to_dict()
         self.assertEqual(len(spec["layer"]), 4)
 
-    def test_chart_trend_connects_to_nearest_logs_outside_range(self):
+    def test_chart_trend_includes_only_nearest_preceding_log(self):
         entries = [
-            {"log_date": f"2026-01-{day:02}", "weight_kg": 80.0 - day / 10, "note": ""}
-            for day in range(1, 9)
+            {"log_date": f"2026-01-{day:02}", "weight_kg": weight, "note": ""}
+            for day, weight in enumerate((97, 95, 80, 79, 81, 78, 90, 92), 1)
         ]
         expected = expected_weights(date(2026, 1, 1), 80.0, date(2026, 1, 8), -500)
         spec = _weight_chart(
@@ -138,9 +150,13 @@ class ExpectedWeightTests(unittest.TestCase):
                 "2026-01-04T00:00:00",
                 "2026-01-05T00:00:00",
                 "2026-01-06T00:00:00",
-                "2026-01-06T22:48:00",
             ],
         )
+        fitted = trend_line(entries[1:6])[1:]
+        for row, baseline, entry in zip(trend_data[1:], fitted, entries[2:6]):
+            actual = entry["weight_kg"]
+            self.assertLessEqual(abs(row["average"] - actual), abs(baseline - actual))
+            self.assertAlmostEqual(row["average"], baseline + 0.4 * (actual - baseline))
         self.assertEqual(
             [
                 expected_data[0]["date"],
@@ -148,25 +164,40 @@ class ExpectedWeightTests(unittest.TestCase):
             ],
             ["2026-01-02T01:12:00", "2026-01-06T22:48:00"],
         )
-        domain_start, domain_end = (
-            datetime.fromisoformat(value)
-            for value in spec["layer"][1]["encoding"]["x"]["scale"]["domain"]
-        )
-        domain_width = (domain_end - domain_start).total_seconds()
-        self.assertAlmostEqual(
-            (datetime.fromisoformat(trend_data[0]["date"]) - domain_start).total_seconds()
-            / domain_width,
-            0.01,
-        )
-        self.assertAlmostEqual(
-            (domain_end - datetime.fromisoformat(trend_data[-1]["date"])).total_seconds()
-            / domain_width,
-            0.01,
-        )
         self.assertEqual(
             [row["date"][:10] for row in dot_data],
             ["2026-01-03", "2026-01-04", "2026-01-05", "2026-01-06"],
         )
+
+    def test_preceding_log_affects_fit_with_two_visible_logs(self):
+        entries = [
+            {"log_date": f"2026-01-{day:02}", "weight_kg": weight, "note": ""}
+            for day, weight in enumerate((83, 80, 80), 1)
+        ]
+        expected = expected_weights(date(2026, 1, 1), 83, date(2026, 1, 3), -500)
+        spec = _weight_chart(
+            entries, expected, "kg", 1.0, date(2026, 1, 2), date(2026, 1, 3)
+        ).to_dict()
+        trend = spec["datasets"][spec["layer"][1]["data"]["name"]]
+        self.assertEqual([row["average"] for row in trend[1:]], [80.6, 79.7])
+        self.assertAlmostEqual(trend[0]["average"], 82.637)
+        self.assertEqual([row["date"][:10] for row in trend], ["2026-01-01", "2026-01-02", "2026-01-03"])
+
+    def test_seven_day_line_connects_actual_weights_from_preceding_log(self):
+        entries = [
+            {"log_date": f"2026-01-{day:02}", "weight_kg": weight, "note": ""}
+            for day, weight in ((1, 86), (2, 83), (5, 80), (9, 81))
+        ]
+        expected = expected_weights(date(2026, 1, 1), 86, date(2026, 1, 9), -500)
+        spec = _weight_chart(
+            entries, expected, "kg", 1.0, date(2026, 1, 3), date(2026, 1, 9),
+            connect_weigh_ins=True,
+        ).to_dict()
+        self.assertEqual(spec["layer"][1]["mark"]["interpolate"], "linear")
+        trend = spec["datasets"][spec["layer"][1]["data"]["name"]]
+        self.assertEqual([row["average"] for row in trend[1:]], [80, 81])
+        self.assertAlmostEqual(trend[0]["average"], 82.92)
+        self.assertEqual(trend[0]["date"], "2026-01-02T01:55:12")
 
     def test_chart_trend_stops_at_latest_log(self):
         entries = [
