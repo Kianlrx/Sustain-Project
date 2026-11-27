@@ -1,0 +1,66 @@
+[hidden] { display: none !important; }
+form { display: grid; gap: 1rem; }
+section { display: grid; gap: .7rem; }
+.grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: .8rem; }
+.grid > div { display: grid; align-content: start; gap: .65rem; }
+input:not([type=radio], [type=checkbox], [type=range]), select, button {
+    box-sizing: border-box; font: inherit; color: inherit; border: 1px solid var(--sustain-border);
+    border-radius: 8px; background: var(--sustain-raised); padding: .45rem .7rem; min-height: 40px;
+}
+input:not([type=radio], [type=checkbox]), select { width: 100%; }
+input { accent-color: var(--sustain-accent); }
+button { cursor: pointer; }
+button:disabled { opacity: .65; cursor: wait; }
+.segments, .pills, .toggle-row { display: flex; flex-wrap: wrap; gap: .45rem; }
+.segments label { flex: 1; text-align: center; }
+.toggle-row { justify-content: space-between; align-items: center; }
+.toggle-row label { font-size: .875rem; }
+.toggle-row input { vertical-align: middle; }
+.toggle-row input[role=switch] {
+    appearance: none; width: 2rem; height: 1.15rem; border-radius: 1rem; background: var(--sustain-muted);
+    margin: 0 .35rem 0 0; padding: .12rem; cursor: pointer;
+}
+.toggle-row input[role=switch]::before {
+    display: block; content: ""; width: .9rem; height: .9rem; border-radius: 50%; background: white;
+}
+.toggle-row input[role=switch]:checked { background: var(--sustain-accent); }
+.toggle-row input[role=switch]:checked::before { margin-left: auto; }
+#body-fat-detail { display: none; gap: .7rem; margin-top: .5rem; }
+.st-key-ob_bodyfat:has(input[name="ob_use_body_fat"]:checked) #body-fat-detail { display: grid; }
+.cards { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: .6rem; }
+.cards.skill { grid-template-columns: repeat(3,minmax(0,1fr)); }
+.cards label, .segments label, .pills label {
+    position: relative; cursor: pointer; border: 1px solid var(--sustain-border);
+    background: var(--sustain-raised); border-radius: 8px; padding: .45rem .65rem; font-size: .85rem;
+}
+.cards label { border-radius: 12px; padding: .75rem .9rem; font-weight: 600; }
+.cards small { display: block; color: var(--sustain-secondary); font-weight: 400; font-size: .74rem; }
+.segments small, .pills small { display: none; }
+.cards input, .segments input, .pills input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.cards label:focus-within, .segments label:focus-within, .pills label:focus-within { outline: 2px solid var(--sustain-accent); }
+.cards label:has(:checked), .diets label:has(:checked) { border-color: var(--sustain-accent); background: var(--sustain-hover-strong); }
+.segments label:has(:checked), .pills:not(.diets) label:has(:checked) { background: var(--sustain-accent); color: white; }
+.st-key-ob_dock { display: flex; justify-content: flex-end; gap: .75rem; align-items: center; box-sizing: border-box; }
+.st-key-ob_dock button { width: 100%; white-space: nowrap; }
+.ob-dock-progress {
+    display: flex; align-items: center; gap: clamp(.75rem, 3vw, 2rem);
+    flex: 1; min-width: 0; font-size: .9rem; font-weight: 600;
+}
+.ob-dock-progress progress {
+    appearance: none; flex: 1; min-width: 0; height: .5rem;
+    border: 0; border-radius: 999px; background: var(--sustain-raised);
+    accent-color: var(--sustain-accent);
+}
+.ob-dock-progress progress::-webkit-progress-bar { background: var(--sustain-raised); border-radius: 999px; }
+.ob-dock-progress progress::-webkit-progress-value { background: var(--sustain-accent); border-radius: 999px; }
+.ob-dock-progress progress::-moz-progress-bar { background: var(--sustain-accent); border-radius: 999px; }
+.st-key-ob_submit { min-width: 9.5rem; }
+.errors { color: var(--sustain-negative); margin-bottom: .8rem; }
+.errors p { margin: .25rem 0; }
+@media (max-width:640px) {
+    .cards, .cards.skill { grid-template-columns: 1fr; }
+    .st-key-ob_dock { flex-wrap: wrap; }
+    .ob-dock-progress { flex-basis: 100%; }
+    .st-key-ob_submit { min-width: 0; }
+}
+.field-warning { color: var(--sustain-negative); font-size: .75rem; }

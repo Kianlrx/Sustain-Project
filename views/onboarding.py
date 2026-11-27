@@ -1,9 +1,10 @@
 # Onboarding questionnaire: a guided 3-step flow (Body Metrics, Lifestyle &
-# Goals, Allergies & Diet) with a live TDEE preview docked at the bottom.
+# Goals, Allergies & Diet) with navigation docked at the bottom.
 import re
 from dataclasses import asdict
 from decimal import Decimal, InvalidOperation, ROUND_DOWN
 from html import escape
+from pathlib import Path
 from urllib.parse import quote
 
 import streamlit as st
@@ -15,7 +16,6 @@ from services.tdee_engine import (
     DEFAULT_OCCUPATION_HOURS_PER_WORKDAY,
     OCCUPATION_METS,
     TRAINING_TYPE_METS,
-    calculate_tdee,
 )
 
 STEPS = (
@@ -90,7 +90,7 @@ DEFAULTS = {
 
 ONBOARDING_CSS = """
 <style>
-        .block-container { max-width:860px; padding:4.5rem 1.25rem 9rem; }
+    .block-container { max-width:860px; padding:4.5rem 1.25rem 9rem; }
     .ob-brand { display:flex; align-items:center; gap:.75rem; flex-wrap:wrap; }
     .ob-brand img { width:40px; height:40px; border-radius:11px; }
     .ob-wordmark { font-size:1.125rem; font-weight:600; color:var(--sustain-text); }
@@ -146,52 +146,11 @@ ONBOARDING_CSS = """
     .st-key-ob_bodyfat { padding:.85rem 1rem; border:1px solid var(--sustain-border); border-radius:12px;
         background:var(--sustain-raised); }
 
-    /* Selected segmented controls and pills fill solid, as in the design */
-    .st-key-ob_card button[data-testid="stBaseButton-segmented_controlActive"],
-    .st-key-ob_card button[data-testid="stBaseButton-pillsActive"] {
-        background:var(--sustain-accent); border-color:var(--sustain-accent); color:#fff; }
-    .st-key-ob_card button[data-testid="stBaseButton-segmented_controlActive"] p,
-    .st-key-ob_card button[data-testid="stBaseButton-pillsActive"] p { color:#fff; }
-    .st-key-ob_diets button[data-testid="stBaseButton-pillsActive"] {
-        background:var(--sustain-hover-strong); border-color:var(--sustain-border-strong); }
-
-    /* Radio groups rendered as selectable cards */
-    [class*="st-key-ob_cards"] [data-testid="stElementContainer"],
-    [class*="st-key-ob_cards"] [data-testid="stRadio"],
-    [class*="st-key-ob_cards"] [data-testid="stRadio"] > div { width:100% !important; }
-    [class*="st-key-ob_cards"] div[role="radiogroup"] { display:grid;
-        grid-template-columns:repeat(2,minmax(0,1fr)); gap:.6rem; width:100%; }
-    .st-key-ob_cards3_skill div[role="radiogroup"] { grid-template-columns:repeat(3,minmax(0,1fr)); }
-    @media (max-width:640px) {
-        [class*="st-key-ob_cards"] div[role="radiogroup"] { grid-template-columns:1fr; } }
-    [class*="st-key-ob_cards"] label[data-baseweb="radio"] { margin:0; padding:.75rem .9rem;
-        border:1px solid var(--sustain-border); border-radius:12px; background:var(--sustain-raised);
-        align-items:flex-start; transition:border-color .15s cubic-bezier(.22,1,.36,1), background-color .15s cubic-bezier(.22,1,.36,1); }
-    [class*="st-key-ob_cards"] label[data-baseweb="radio"]:hover { border-color:var(--sustain-border-strong);
-        background:var(--sustain-hover-strong); }
-    [class*="st-key-ob_cards"] label[data-baseweb="radio"]:has(input:checked) {
-        border-color:var(--sustain-accent); background:var(--sustain-hover-strong);
-        box-shadow:inset 0 0 0 1px var(--sustain-accent); }
-    [class*="st-key-ob_cards"] label[data-baseweb="radio"] > div:first-child { display:none; }
-    [class*="st-key-ob_cards"] label[data-baseweb="radio"] p { font-size:.85rem; }
-    [class*="st-key-ob_cards"] [data-testid="stCaptionContainer"] p { font-size:.74rem;
-        color:var(--sustain-secondary); line-height:1.4; }
-
-    /* Bottom dock with the live TDEE preview and navigation */
+    /* Bottom dock with step navigation */
     .st-key-ob_dock { position:fixed; left:0; right:0; bottom:0; z-index:100;
         padding:.8rem max(1.25rem, calc((100vw - 860px) / 2 + 1.25rem));
         background:var(--sustain-dock);
         border-top:1px solid var(--sustain-border); }
-    .ob-preview { display:flex; flex-wrap:wrap; align-items:center; gap:1rem; }
-    .ob-metric { display:flex; flex-direction:column; }
-    .ob-metric small { color:var(--sustain-muted); font-size:.75rem; font-weight:400; }
-    .ob-metric b { color:var(--sustain-text); font-size:1rem; font-weight:500; font-variant-numeric:tabular-nums; }
-    .ob-divider { width:1px; height:28px; background:var(--sustain-border); }
-    .ob-macros { display:flex; gap:.4rem; flex-wrap:wrap; }
-    .ob-macro { display:inline-flex; align-items:center; gap:.35rem; padding:.25rem .55rem;
-        border-radius:8px; background:var(--sustain-raised); border:1px solid var(--sustain-border); font-size:.75rem;
-        font-weight:500; font-variant-numeric:tabular-nums; }
-    .ob-macro i { width:8px; height:8px; border-radius:50%; }
     .st-key-ob_dock button { min-height:40px; border-radius:8px; font-weight:500; }
     .st-key-ob_back button { background:var(--sustain-raised); border:1px solid var(--sustain-border); color:var(--sustain-text); }
     .st-key-ob_back button:hover { background:var(--sustain-hover-strong); border-color:var(--sustain-border-strong); color:var(--sustain-text); }
@@ -254,33 +213,6 @@ def _convert_measurement_value(
     return format(_truncate_to_two_decimals(converted), "f")
 
 
-def _convert_measurement_inputs() -> None:
-    from_units = st.session_state.get("measurement_units_previous", "Metric")
-    to_units = st.session_state["measurement_units"]
-    if from_units == to_units:
-        return
-
-    try:
-        converted_inputs = {
-            key: _convert_measurement_value(
-                st.session_state[key], measurement, from_units, to_units
-            )
-            for key, measurement in (
-                ("height_cm", "height"),
-                ("weight_kg", "weight"),
-            )
-        }
-    except (InvalidOperation, ValueError):
-        st.session_state["measurement_units"] = from_units
-        st.session_state["unit_conversion_warning"] = (
-            "Enter numeric height and weight values before changing units."
-        )
-        return
-
-    st.session_state.update(converted_inputs)
-    st.session_state["measurement_units_previous"] = to_units
-
-
 def _normalize_allergens(selected: list[str], custom: str) -> list[str]:
     return [
         allergen for allergen in selected if allergen != "Other"
@@ -332,17 +264,6 @@ def _integer_input_warning(
     except ValueError as error:
         return str(error)
     return None
-
-
-def _normalize_measurement_input(key: str) -> None:
-    st.session_state[key] = _truncate_input_value(st.session_state[key])
-
-
-def _normalize_measurement_inputs() -> None:
-    for key in ("height_cm", "weight_kg", "body_fat_pct_input"):
-        st.session_state[key] = _truncate_input_value(
-            st.session_state.get(key, "")
-        )
 
 
 def _measurement_ranges(units):
@@ -440,54 +361,6 @@ def _collect_profile(state):
     return profile, errors
 
 
-# ---- Session-state callbacks -------------------------------------------------
-
-def _keep_choice(key):
-    """Segmented controls and pills can be clicked off; keep the last choice."""
-    if st.session_state[key] is None:
-        st.session_state[key] = st.session_state[f"{key}__last"]
-    else:
-        st.session_state[f"{key}__last"] = st.session_state[key]
-
-
-def _change_units():
-    if st.session_state["measurement_units"] is None:
-        st.session_state["measurement_units"] = st.session_state["measurement_units_previous"]
-        return
-    _convert_measurement_inputs()
-
-
-def _go_back():
-    st.session_state["ob_step"] = max(1, st.session_state["ob_step"] - 1)
-    st.session_state["ob_errors"] = []
-
-
-def _go_next():
-    step = st.session_state["ob_step"]
-    _normalize_measurement_inputs()
-    _, errors = _collect_profile(st.session_state)
-    st.session_state["ob_errors"] = errors[step]
-    if not errors[step]:
-        st.session_state["ob_step"] = min(len(STEPS), step + 1)
-
-
-def _submit():
-    _normalize_measurement_inputs()
-    profile, errors = _collect_profile(st.session_state)
-    if profile is None:
-        first_step = next(step for step, messages in errors.items() if messages)
-        st.session_state["ob_step"] = first_step
-        st.session_state["ob_errors"] = errors[first_step]
-        return
-    user_id = st.session_state.user["id"]
-    db.save_profile(user_id, profile)
-    db.mark_onboarding_complete(user_id)
-    st.session_state.user["onboarding_complete"] = True
-    st.session_state["main_navigation"] = "Dashboard"
-
-
-# ---- Rendering ---------------------------------------------------------------
-
 def _icon(name, color="#8a8a90"):
     svg = (
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" '
@@ -496,21 +369,6 @@ def _icon(name, color="#8a8a90"):
     )
     # st.html strips inline <svg>, so icons are embedded as images.
     return f'<span class="ob-icon"><img alt="" src="data:image/svg+xml,{quote(svg)}"></span>'
-
-
-def _card_header(icon, title, tip, badge="", icon_color="#8a8a90"):
-    st.html(
-        '<div class="ob-card-head"><div class="ob-card-title">'
-        f"{_icon(icon, icon_color)}<h2>{escape(title)}</h2>"
-        f'<span class="ob-tip" title="{escape(tip)}">?</span></div>{badge}</div>'
-    )
-
-
-def _label(text, hint="", hot=False):
-    st.html(
-        f'<div class="ob-label">{escape(text)}'
-        f'<span class="{"hot" if hot else ""}">{escape(hint)}</span></div>'
-    )
 
 
 def _header():
@@ -524,267 +382,184 @@ def _header():
     )
 
 
-def _stepper(current):
+
+def _card_header(icon, title, tip, badge=""):
+    return (
+        '<div class="ob-card-head"><div class="ob-card-title">'
+        f"{_icon(icon)}<h2 tabindex='-1'>{escape(title)}</h2>"
+        f'<span class="ob-tip" title="{escape(tip)}">?</span></div>{badge}</div>'
+    )
+
+
+def _label(text, hint="", target=""):
+    tag = "label" if target else "div"
+    linked = f' for="{target}"' if target else ""
+    return f'<{tag}{linked} class="ob-label">{escape(text)}<span>{escape(hint)}</span></{tag}>'
+
+
+def _field(name, label, attrs="", hint=""):
+    value = escape(str(DEFAULTS[name]), quote=True)
+    return _label(label, hint, name) + f'<input id="{name}" name="{name}" value="{value}" {attrs}>'
+
+
+def _group(name, label, options, style="pills", multiple=False):
+    kind = "checkbox" if multiple else "radio"
+    selected = DEFAULTS[name] if multiple else (DEFAULTS[name],)
+    items = "".join(
+        f'<label><input name="{name}" type="{kind}" value="{escape(value)}"'
+        f'{" checked" if value in selected else ""}>'
+        f'<span>{escape(title)}<small>{escape(detail)}</small></span></label>'
+        for value, (title, detail) in options.items()
+    )
+    return f'<div class="{style}" role="group" aria-label="{escape(label)}">{items}</div>'
+
+
+def _choices(items):
+    return {item: (item, "") for item in items}
+
+
+def _onboarding_html():
     tabs = "".join(
-        f'<div class="ob-tab {"active" if number == current else "done" if number < current else ""}">'
-        f'<span class="ob-num">{"✓" if number < current else number}</span>'
-        f'<div><div class="ob-tab-title">{escape(title)}</div>'
-        f'<div class="ob-tab-sub">{escape(sub)}</div></div></div>'
-        for number, (title, sub) in enumerate(STEPS, start=1)
+        f'<div class="ob-tab"><span class="ob-num">{number}</span>'
+        f'<div class="ob-tab-title"><span class="ob-tab-name">{escape(title)}</span><div class="ob-tab-sub">{escape(sub)}</div></div></div>'
+        for number, (title, sub) in enumerate(STEPS, 1)
     )
-    st.html(
-        f'<div class="ob-stepper"><div class="ob-tabs">{tabs}</div>'
-        f'<div class="ob-track"><div class="ob-fill" style="width:{current / len(STEPS) * 100:.2f}%">'
-        "</div></div></div>"
+    training = "".join(
+        f'<option value="{escape(key)}">{escape(TRAINING_LABELS[key])}</option>' for key in TRAINING_TYPE_METS
     )
+    default_height = float(DEFAULTS["height_cm"]) / 100
+    default_bmi = float(DEFAULTS["weight_kg"]) / default_height ** 2
+    bmi_badge = f'<output class="ob-pill green" id="bmi" aria-live="polite">BMI {default_bmi:.1f} &middot; Healthy Range</output>'
+    return f"""
+    <form novalidate>
+        <div class="ob-stepper"><div class="ob-tabs">{tabs}</div>
+          <div class="ob-track"><div class="ob-fill"></div></div></div>
+        <div class="st-key-ob_card">
+          <div class="errors" role="alert" hidden></div>
+          <section>
+            {_card_header("body", "Body Metrics", "Used to compute your Basal Metabolic Rate (BMR), the calories your body burns at rest.", bmi_badge)}
+            {_label("Measurement Units")}
+            {_group("measurement_units", "Measurement units", {"Metric": ("Metric (cm / kg)", ""), "Imperial": ("Imperial (in / lbs)", "")}, "segments")}
+            <div class="grid">
+              <div>{_field("ob_age", "Age", 'type="number" min="15" max="100" required')}</div>
+              <div>{_label("Biological Sex", "For BMR constant")}
+              {_group("ob_sex", "Biological Sex", _choices(("Male", "Female")), "segments")}</div>
+              <div>{_field("height_cm", "Height (cm)", 'inputmode="decimal"')}</div>
+              <div>{_field("weight_kg", "Weight (kg)", 'inputmode="decimal"')}</div>
+            </div>
+            <div class="st-key-ob_bodyfat">
+              <div class="toggle-row"><label><input type="checkbox" role="switch" name="ob_use_body_fat" aria-controls="body-fat-detail"> I know my Body Fat %</label>
+              <span class="ob-pill grey" id="formula"></span></div>
+              <div id="body-fat-detail">{_field("body_fat_pct_input", "Body Fat Percentage", 'inputmode="decimal" placeholder="e.g. 18"', "3 - 80%")}</div>
+            </div>
+          </section>
+          <section hidden>
+            {_card_header("lifestyle", "Lifestyle & Fitness Goals", "Sets your exercise (EAT) and everyday movement (NEAT) energy, and your calorie target.")}
+            {_label("Primary Fitness Goal")}
+            {_group("fitness_goal", "Primary Fitness Goal", {k: (k, detail) for k, (_, detail) in GOALS.items()}, "cards")}
+            {_field("training_sessions_per_week", "Training Sessions per Week", f'type="range" min="0" max="{MAX_SESSIONS_PER_WEEK}"')}
+            <div id="training-detail" class="grid">
+              <div>{_label("Main Exercise Type", target="training_type")}
+                <select id="training_type" name="training_type">{training}</select></div>
+              <div>{_field("training_duration_minutes", "Avg Time per Workout", 'type="number" min="10" max="240" step="5" required', "minutes")}</div>
+            </div>
+            {_label("Daily Occupation Movement", "Non-exercise activity (NEAT)")}
+            {_group("occupation_movement", "Daily Occupation Movement", OCCUPATIONS, "cards")}
+            {_label("Estimated Daily Step Count")}
+            {_group("daily_steps_option", "Estimated Daily Step Count", _choices(STEP_OPTIONS))}
+            <div id="steps-detail">{_field("custom_daily_steps_input", "Custom daily steps", 'inputmode="numeric" placeholder="Steps per day, e.g. 8200"')}</div>
+            {_label("Cooking Skill Level")}
+            {_group("cooking_skill", "Cooking Skill Level", {k: (k, detail) for k, detail in SKILLS.items()}, "cards skill")}
+          </section>
+          <section hidden>
+            {_card_header("shield", "Allergies & Dietary Restrictions", "Excluded foods are kept out of recipe searches and meal suggestions.", '<span class="ob-pill grey">Optional</span>')}
+            {_label("Allergens / Dietary Exclusions")}
+            {_group("allergens", "Allergens", _choices(ALLERGEN_OPTIONS), multiple=True)}
+            {_field("other_allergen", "Other exclusions", 'placeholder="Other ingredients to exclude, comma-separated (e.g. cilantro, mushrooms)"')}
+            {_label("Diet Types")}
+            {_group("dietary_preferences", "Diet Types", _choices(DIETARY_PREFERENCES), "pills diets", True)}
+          </section>
+        </div>
+        <footer class="st-key-ob_dock">
+          <div class="ob-dock-progress">
+            <span id="ob-progress-label">Step 1 of {len(STEPS)} &bull; {escape(STEPS[0][0])}</span>
+            <progress id="ob-progress" value="1" max="{len(STEPS)}" aria-labelledby="ob-progress-label"></progress>
+          </div>
+          <div class="st-key-ob_back"><button type="button" id="back" hidden>&larr; Back</button></div>
+          <div class="st-key-ob_submit"><button type="submit" id="next">Next Step &rarr;</button></div>
+        </footer>
+    </form>
+    """
 
 
-def _bmi_badge():
-    units = st.session_state["measurement_units"]
-    height_label, hmin, hmax, weight_label, wmin, wmax = _measurement_ranges(units)
+_ANSWER_DEFAULTS = {key: value for key, value in DEFAULTS.items() if key not in {
+    "ob_step", "ob_errors", "measurement_units_previous", "ob_sex__last", "daily_steps_option__last",
+}}
+_PATH = Path(__file__).resolve().parents[1] / "components" / "onboarding"
+_questionnaire = st.components.v2.component(
+    "sustain_onboarding",
+    html=_onboarding_html(),
+    css=ONBOARDING_CSS.split("<style>", 1)[1].split("</style>", 1)[0]
+    + (_PATH / "questionnaire.css").read_text(encoding="utf-8"),
+    js=(_PATH / "questionnaire.js").read_text(encoding="utf-8"),
+)
+
+
+def _save_questionnaire():
+    answers = st.session_state.onboarding_questionnaire.submit
+    if not isinstance(answers, dict):
+        return
     try:
-        height = _parse_measurement(st.session_state["height_cm"], height_label, hmin, hmax)
-        weight = _parse_measurement(st.session_state["weight_kg"], weight_label, wmin, wmax)
-    except ValueError:
-        return '<span class="ob-pill grey">BMI —</span>'
-    if units == "Imperial":
-        height, weight = height * 2.54, weight / 2.2046226218
-    bmi = weight / (height / 100) ** 2
-    if bmi < 18.5:
-        label, tone = "Underweight", "blue"
-    elif bmi < 25:
-        label, tone = "Healthy Range", "green"
-    elif bmi < 30:
-        label, tone = "Overweight", "amber"
-    else:
-        label, tone = "Higher BMI", "amber"
-    return f'<span class="ob-pill {tone}">BMI {bmi:.1f} · {label}</span>'
+        if set(answers) != set(_ANSWER_DEFAULTS):
+            raise ValueError("Incomplete answers")
+        if any(
+            type(answers[key]) is not type(default)
+            for key, default in _ANSWER_DEFAULTS.items()
+        ):
+            raise ValueError("Invalid answer type")
+        choices = {
+            "measurement_units": ("Metric", "Imperial"), "ob_sex": ("Male", "Female"),
+            "fitness_goal": GOALS, "occupation_movement": OCCUPATIONS, "cooking_skill": SKILLS,
+            "training_type": TRAINING_TYPE_METS, "daily_steps_option": STEP_OPTIONS,
+        }
+        if any(answers[key] not in options for key, options in choices.items()):
+            raise ValueError("Invalid choice")
+        if any(item not in ALLERGEN_OPTIONS for item in answers["allergens"]) or any(
+            item not in DIETARY_PREFERENCES for item in answers["dietary_preferences"]
+        ):
+            raise ValueError("Invalid exclusions")
+        if not 15 <= answers["ob_age"] <= 100 or not 10 <= answers["training_duration_minutes"] <= 240:
+            raise ValueError("Age or workout duration is out of range")
+        profile, errors = _collect_profile(answers)
+    except (TypeError, ValueError):
+        profile, errors = None, {1: ["Check your answers and try again."]}
+        answers = None
 
-
-def _step_body_metrics():
-    _card_header(
-        "body", "Body Metrics",
-        "Used to compute your Basal Metabolic Rate (BMR), the calories your body burns at rest.",
-        _bmi_badge(),
-    )
-    units = st.session_state["measurement_units"]
-    _label("Measurement Units", f"Using {units} System")
-    st.segmented_control(
-        "Measurement units",
-        ["Metric", "Imperial"],
-        format_func=lambda value: "Metric (cm / kg)" if value == "Metric" else "Imperial (in / lbs)",
-        key="measurement_units",
-        on_change=_change_units,
-        label_visibility="collapsed",
-        width="stretch",
-    )
-    height_label, hmin, hmax, weight_label, wmin, wmax = _measurement_ranges(units)
-
-    age_col, sex_col = st.columns(2)
-    with age_col:
-        _label("Age", "15 – 100 yrs")
-        st.number_input("Age", min_value=15, max_value=100, key="ob_age",
-                        label_visibility="collapsed")
-    with sex_col:
-        _label("Biological Sex", "For BMR constant")
-        st.segmented_control(
-            "Biological Sex", ["Male", "Female"], key="ob_sex",
-            on_change=_keep_choice, args=("ob_sex",),
-            label_visibility="collapsed", width="stretch",
-        )
-
-    height_col, weight_col = st.columns(2)
-    for column, key, label, low, high in (
-        (height_col, "height_cm", height_label, hmin, hmax),
-        (weight_col, "weight_kg", weight_label, wmin, wmax),
-    ):
-        with column:
-            _label(label, f"{low:g} – {high:g}")
-            value = st.text_input(
-                label, key=key, on_change=_normalize_measurement_input, args=(key,),
-                label_visibility="collapsed",
-            )
-            if warning := _measurement_warning(value, label, low, high):
-                st.caption(f":red[{warning}]")
-
-    with st.container(key="ob_bodyfat"):
-        toggle_col, badge_col = st.columns([3, 2], vertical_alignment="center")
-        with toggle_col:
-            use_body_fat = st.toggle("I know my Body Fat %", key="ob_use_body_fat")
-        badge_col.html(
-            '<div style="text-align:right">'
-            + (
-                '<span class="ob-pill blue">Formula: Katch-McArdle</span>'
-                if use_body_fat
-                else '<span class="ob-pill grey">Formula: Mifflin-St Jeor</span>'
-            )
-            + "</div>"
-        )
-        if use_body_fat:
-            _label("Body Fat Percentage", "3 – 80%")
-            value = st.text_input(
-                "Body Fat %", key="body_fat_pct_input", placeholder="e.g. 18",
-                on_change=_normalize_measurement_input, args=("body_fat_pct_input",),
-                label_visibility="collapsed",
-            )
-            if warning := _measurement_warning(value, "Body Fat %", 3, 80):
-                st.caption(f":red[{warning}]")
-
-
-def _step_lifestyle():
-    _card_header(
-        "lifestyle", "Lifestyle & Fitness Goals",
-        "Sets your exercise (EAT) and everyday movement (NEAT) energy, and your calorie target.",
-    )
-    _label("Primary Fitness Goal", GOALS[st.session_state["fitness_goal"]][0])
-    with st.container(key="ob_cards_goal"):
-        st.radio(
-            "Primary Fitness Goal", list(GOALS), key="fitness_goal",
-            format_func=lambda goal: f"**{goal}**",
-            captions=[description for _, description in GOALS.values()],
-            label_visibility="collapsed",
-        )
-
-    sessions = st.session_state["training_sessions_per_week"]
-    minutes = st.session_state["training_duration_minutes"]
-    _label(
-        "Training Sessions per Week",
-        f"{sessions} session{'' if sessions == 1 else 's'} · {sessions * minutes} min/wk",
-        hot=True,
-    )
-    st.slider(
-        "Training sessions per week", min_value=0, max_value=MAX_SESSIONS_PER_WEEK,
-        step=1, key="training_sessions_per_week", label_visibility="collapsed",
-    )
-    if sessions > 0:
-        type_col, minutes_col = st.columns(2)
-        with type_col:
-            _label("Main Exercise Type")
-            st.selectbox(
-                "Main exercise type", list(TRAINING_TYPE_METS), key="training_type",
-                format_func=TRAINING_LABELS.get, label_visibility="collapsed",
-            )
-        with minutes_col:
-            _label("Avg Time per Workout", "minutes")
-            st.number_input(
-                "Average time per workout", min_value=10, max_value=240, step=5,
-                key="training_duration_minutes", label_visibility="collapsed",
-            )
-
-    _label("Daily Occupation Movement", "Non-exercise activity (NEAT)")
-    with st.container(key="ob_cards_occupation"):
-        st.radio(
-            "Daily Occupation Movement", list(OCCUPATION_METS), key="occupation_movement",
-            format_func=lambda value: f"**{OCCUPATIONS[value][0]}**",
-            captions=[OCCUPATIONS[value][1] for value in OCCUPATION_METS],
-            label_visibility="collapsed",
-        )
-
-    _label("Estimated Daily Step Count")
-    st.pills(
-        "Estimated daily step count", STEP_OPTIONS, key="daily_steps_option",
-        on_change=_keep_choice, args=("daily_steps_option",),
-        label_visibility="collapsed",
-    )
-    if st.session_state["daily_steps_option"] == "Custom amount":
-        value = st.text_input(
-            "Custom daily steps", key="custom_daily_steps_input",
-            placeholder="Steps per day, e.g. 8200", label_visibility="collapsed",
-        )
-        if warning := _integer_input_warning(value, "Custom daily steps", 0, 50000):
-            st.caption(f":red[{warning}]")
-
-    _label("Cooking Skill Level")
-    with st.container(key="ob_cards3_skill"):
-        st.radio(
-            "Cooking Skill Level", list(SKILLS), key="cooking_skill",
-            format_func=lambda value: f"**{value}**",
-            captions=list(SKILLS.values()),
-            label_visibility="collapsed",
-        )
-
-
-def _step_allergies():
-    _card_header(
-        "shield", "Allergies & Dietary Restrictions",
-        "Excluded foods are kept out of recipe searches and meal suggestions.",
-        '<span class="ob-pill grey">Optional</span>',
-        icon_color="#8a8a90",
-    )
-    excluded = len(st.session_state["allergens"]) + len(
-        [v for v in st.session_state["other_allergen"].split(",") if v.strip()]
-    )
-    _label("Allergens / Dietary Exclusions", f"{excluded} excluded")
-    st.pills(
-        "Allergens", ALLERGEN_OPTIONS, selection_mode="multi", key="allergens",
-        label_visibility="collapsed",
-    )
-    st.text_input(
-        "Other exclusions", key="other_allergen",
-        placeholder="Other ingredients to exclude, comma-separated (e.g. cilantro, mushrooms)",
-        label_visibility="collapsed",
-    )
-    diets = st.session_state["dietary_preferences"]
-    _label("Diet Types", ", ".join(diets) if diets else "No restrictions")
-    with st.container(key="ob_diets"):
-        st.pills(
-            "Diet types", DIETARY_PREFERENCES, selection_mode="multi",
-            key="dietary_preferences", label_visibility="collapsed",
-        )
-
-
-def _dock(step):
-    profile, _ = _collect_profile(st.session_state)
     if profile is None:
-        tdee_text = target_text = "—"
-        protein = carbs = fat = "—"
-    else:
-        targets = targets_service.calculate_targets(profile)
-        tdee_text = f"{round(calculate_tdee(profile)['tdee_kcal']):,} kcal"
-        target_text = f"{targets['calories']:,} kcal"
-        protein, carbs, fat = (f"{targets[key]}g" for key in ("protein_g", "carbs_g", "fat_g"))
-    goal = escape(st.session_state["fitness_goal"])
+        step, messages = next((step, messages) for step, messages in errors.items() if messages)
+        attempt = st.session_state.get("onboarding_feedback", {}).get("attempt", 0) + 1
+        st.session_state.onboarding_feedback = {
+            "step": step - 1, "errors": messages, "answers": answers, "attempt": attempt,
+        }
+        return
 
-    with st.container(key="ob_dock"):
-        preview_col, back_col, action_col = st.columns(
-            [5, 1.2, 1.9], vertical_alignment="center"
-        )
-        preview_col.html(
-            '<div class="ob-preview">'
-            f'<div class="ob-metric"><small>Maintenance TDEE</small><b>{tdee_text}</b></div>'
-            '<span class="ob-divider"></span>'
-            f'<div class="ob-metric"><small>Target ({goal})</small>'
-            f'<b style="color:var(--sustain-text)">{target_text}</b></div>'
-            '<span class="ob-divider"></span><div class="ob-macros">'
-            f'<span class="ob-macro"><i style="background:#5aa9d6"></i>P {protein}</span>'
-            f'<span class="ob-macro"><i style="background:#e2a640"></i>C {carbs}</span>'
-            f'<span class="ob-macro"><i style="background:#9d8fd1"></i>F {fat}</span>'
-            "</div></div>"
-        )
-        if step > 1:
-            back_col.button("← Back", key="ob_back", on_click=_go_back,
-                            use_container_width=True)
-        if step < len(STEPS):
-            action_col.button("Next Step →", key="ob_next", on_click=_go_next,
-                              use_container_width=True)
-        else:
-            action_col.button("Submit & View Plan →", key="ob_submit", on_click=_submit,
-                              use_container_width=True)
+    user = st.session_state.user
+    db.save_profile(user["id"], profile, complete_onboarding=True)
+    user["onboarding_complete"] = True
+    st.session_state.main_navigation = "Dashboard"
+    st.session_state.pop("onboarding_feedback", None)
 
 
 def render_onboarding_page():
-    for key, default in DEFAULTS.items():
-        # Re-assigning keeps answers for widgets on steps that are not shown.
-        st.session_state[key] = st.session_state.get(key, default)
     st.html(ONBOARDING_CSS)
-    if warning := st.session_state.pop("unit_conversion_warning", None):
-        st.toast(warning, icon=":material/warning:")
-
-    step = st.session_state["ob_step"]
     _header()
-    _stepper(step)
-    with st.container(key="ob_card"):
-        for message in st.session_state["ob_errors"]:
-            st.error(message)
-        (_step_body_metrics, _step_lifestyle, _step_allergies)[step - 1]()
-    _dock(step)
+    _questionnaire(
+        key="onboarding_questionnaire",
+        data={
+            "defaults": _ANSWER_DEFAULTS,
+            "feedback": st.session_state.get("onboarding_feedback"),
+            "ranges": {unit: _measurement_ranges(unit) for unit in ("Metric", "Imperial")},
+            "goalHints": {key: hint for key, (hint, _) in GOALS.items()},
+        },
+        on_submit_change=_save_questionnaire,
+    )

@@ -4,11 +4,15 @@
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from streamlit.testing.v1 import AppTest
 
+import streamlit as st
+
 from services import db
+from views.onboarding import _ANSWER_DEFAULTS
 from integration_services import PROFILE
 
 APP = str(Path(__file__).resolve().parents[1] / "app.py")
@@ -52,10 +56,15 @@ class AppJourneyTests(unittest.TestCase):
         self.sign_up("newuser", "secret1")
         self.assertEqual(self.app.session_state["user"]["username"], "newuser")
 
-        # every onboarding answer starts filled in, so Next, Next, Submit finishes it
-        self.click(key="ob_next")
-        self.click(key="ob_next")
-        self.click(key="ob_submit")
+        # AppTest delivers the submission payload without running the browser component.
+        def submit_questionnaire(**kwargs):
+            st.session_state.onboarding_questionnaire = SimpleNamespace(submit=dict(_ANSWER_DEFAULTS))
+            kwargs["on_submit_change"]()
+            st.rerun()
+
+        with patch("views.onboarding._questionnaire", side_effect=submit_questionnaire):
+            self.app.run()
+            self.assertFalse(self.app.exception)
 
         user = db.check_login("newuser", "secret1")
         self.assertTrue(user["onboarding_complete"])

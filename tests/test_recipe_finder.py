@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pandas as pd
@@ -195,12 +196,14 @@ class FindRecipePageTests(unittest.TestCase):
         self.click(self.app.button(key="diary_request_meal"))
         self.assertEqual(self.app.title[0].value, "Find a recipe")
 
-        self.click(self.app.button(key="finder_pick_dinner"))
-        self.click(self.app.button(key="finder_plus_dinner"))
-        self.assertEqual(self.app.session_state["recipe_finder"]["split"]["Dinner"], 35)
-
-        self.app.text_area(key="recipe_craving_input").set_value("Indian food")
-        self.click(self.app.button(key="finder_submit"))
+        submission = SimpleNamespace(search={
+            "craving": "Indian food",
+            "slot": "Dinner",
+            "split": {**recipe_finder.DEFAULT_SPLIT, "Dinner": 35},
+        })
+        with patch("views.find_recipe._search_form", return_value=submission):
+            self.app.run()
+            self.assertFalse(self.app.exception)
         state = self.app.session_state["recipe_finder"]
         self.assertEqual(state["slot"], "Dinner")
         self.assertTrue(state["results"])

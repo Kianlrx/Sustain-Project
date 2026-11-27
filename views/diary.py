@@ -247,16 +247,17 @@ def render_diary_page():
     saved_date = f"diary_selected_date_{user['id']}"
     picker_key = f"diary_date_picker_{user['id']}"
     st.session_state.setdefault(picker_key, st.session_state.get(saved_date, today))
-    with date_col, st.container(
-        key="diary_date", horizontal=True, horizontal_alignment="right",
-        vertical_alignment="center",
+    with date_col, st.form("diary_date_form", border=False), st.container(
+        key="diary_date", horizontal=True, horizontal_alignment="right", vertical_alignment="center",
     ):
         selected = st.date_input(
             "Diary date", min_value=date(1900, 1, 1), max_value=today,
             key=picker_key, format="DD/MM/YYYY", label_visibility="collapsed",
             width=155,
         )
-    st.session_state[saved_date] = selected
+        if st.form_submit_button("Go") and selected is not None:
+            st.session_state[saved_date] = selected
+    selected = st.session_state.get(saved_date, today)
     title_col.title("Today" if selected == today else selected.strftime("%A, %d %B"), anchor=False)
     log_date = selected.isoformat()
 
