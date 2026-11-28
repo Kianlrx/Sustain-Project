@@ -1,6 +1,6 @@
 # Find a Recipe (SCRUM-77): turns a craving and a meal slot into a recipe search
 # on the food.com recipe database, then ranks the matches by how well they fit
-# the slot's share of the day's calories and macros.
+# the slot's share of the day's calories.
 
 from services import preference_parser, recipe_search
 
@@ -9,19 +9,13 @@ MEAL_SLOTS = ["Breakfast", "Lunch", "Dinner", "Snack"]
 DEFAULT_SPLIT = {"Breakfast": 30, "Lunch": 30, "Dinner": 30, "Snack": 10}
 SPLIT_STEP = 5
 
-# a recipe counts as a fit when its calories are between these shares of the budget
-CALORIE_RANGE = (0.6, 1.1)
+FALLBACK_CALORIE_RANGE = (0.6, 1.1)
 POOL_SIZE = 60  # recipes fetched from the database before ranking
 RESULTS_SHOWN = 5
 MAX_RESULTS = 20
 
 # columns searched for exclusion words (see recipe_search.find_recipes)
 EXCLUSION_COLUMNS = ["Name", "RecipeIngredientParts", "RecipeInstructions"]
-MACRO_COLUMNS = {
-    "protein_g": "ProteinContent",
-    "carbs_g": "CarbohydrateContent",
-    "fat_g": "FatContent",
-}
 
 
 def default_slot(hour):
@@ -43,9 +37,9 @@ def adjust_split(split, slot, change):
 
 
 def slot_budget(targets, split, slot):
-    """The calories and macros a slot gets from the daily targets."""
+    """The calorie budget for the selected meal."""
     share = split[slot] / 100
-    return {key: round(targets[key] * share) for key in ["calories", "protein_g", "carbs_g", "fat_g"]}
+    return {"calories": round(targets["calories"] * share)}
 
 
 def build_query(filters, budget, profile=None):
@@ -63,7 +57,7 @@ def build_query(filters, budget, profile=None):
     typed_words = [a.strip().lower() for a in allergens if a not in recipe_search.ALLERGEN_WORDS]
     diets = list(dict.fromkeys(list(profile.get("diets", [])) + search_args["diets"]))
     diets = [diet for diet in diets if diet in preference_parser.DIETS]
-    skill = profile.get("cooking_skill")
+    skill = search_args.get("skill", profile.get("cooking_skill"))
     if skill not in recipe_search.SKILL_LEVELS:
         skill = "Advanced"
 
@@ -75,20 +69,18 @@ def build_query(filters, budget, profile=None):
     if filters["cuisines"]:
         # any one of these, found in Keywords, RecipeCategory or Name
         query["Keywords|RecipeCategory|Name"] = [c.title() for c in filters["cuisines"]]
-    if search_args["keywords"]:
-        query["Keywords"] = search_args["keywords"]
+    if "max_cook_minutes" in search_args:
+        query["CookTime"] = {"max_minutes": search_args["max_cook_minutes"]}
+    macro_preferences = {key: True for key in preference_parser.MACRO_PREFERENCES if key in search_args}
+    if macro_preferences:
+        query["macro_preferences"] = macro_preferences
     exclusions = list(dict.fromkeys(typed_words + search_args["allergens"]))
     if exclusions:
         query["exclude_words"] = {"columns": EXCLUSION_COLUMNS, "words": exclusions}
     query["SkillLevel"] = {"max": recipe_search.SKILL_LEVELS.index(skill) + 1}
-    low, high = CALORIE_RANGE
-    query["Calories"] = {
-        "min": round(budget["calories"] * low),
-        "max": round(budget["calories"] * high),
-        "target": budget["calories"],
-    }
-    for key, column in MACRO_COLUMNS.items():
-        query[column] = {"target": budget[key]}
+    target = budget["calories"]
+    margin = target * preference_parser.NUMERIC_TOLERANCE
+    query["Calories"] = {"min": target - margin, "max": target + margin, "target": target}
     # flavours and cooking styles have no column, so they only push matching names up the list
     boost = filters["flavors"] + filters["preparation"]
     if boost:
@@ -107,22 +99,18 @@ def _find_args(query):
     return {
         "diets": diets,
         "allergens": allergens,
-        "keywords": query.get("Keywords", []),
         "cuisines": query.get("Keywords|RecipeCategory|Name", []),
         "skill": skill,
         "near_calories": query["Calories"]["target"],
+        "max_cook_minutes": query.get("CookTime", {}).get("max_minutes"),
+        **query.get("macro_preferences", {}),
     }
 
 
 def fit_score(recipe, query):
-    """Lower is better: how far the recipe is from the slot's calories, then its macros."""
+    """Rank by calorie fit and requested flavour or preparation matches."""
     target = max(query["Calories"]["target"], 1)
     score = abs(recipe["Calories"] - target) / target
-    macro_gaps = [
-        abs(recipe[column] - query[column]["target"]) / max(query[column]["target"], 1)
-        for column in MACRO_COLUMNS.values()
-    ]
-    score += 0.5 * sum(macro_gaps) / len(macro_gaps)
     name = str(recipe.get("Name", "")).lower()
     for word in query.get("rank_boost_words", []):
         if word in name:
@@ -134,24 +122,31 @@ def run_query(query, db_path=None):
     """Search the database and return (recipes ranked best first, whether the calorie range was widened)."""
     db_path = db_path or recipe_search.DB_PATH
     args = _find_args(query)
-    calories = (query["Calories"]["min"], query["Calories"]["max"])
-    pool = recipe_search.find_recipes(calories=calories, limit=POOL_SIZE, db_path=db_path, **args)
-    widened = False
-    if len(pool) < RESULTS_SHOWN:
-        # too few in range, so take the closest recipes whatever their size
-        pool = recipe_search.find_recipes(limit=POOL_SIZE, db_path=db_path, **args)
-        widened = True
-    recipes = pool.to_dict("records")
+    calorie_range = (query["Calories"]["min"], query["Calories"]["max"])
+    strict = recipe_search.find_recipes(calories=calorie_range, limit=POOL_SIZE, db_path=db_path, **args)
+    recipes = strict.to_dict("records")
     recipes.sort(key=lambda recipe: fit_score(recipe, query))
-    return recipes[:MAX_RESULTS], widened
+    if len(recipes) >= RESULTS_SHOWN:
+        return recipes[:MAX_RESULTS], False
+
+    target = query["Calories"]["target"]
+    calories = tuple(round(target * share) for share in FALLBACK_CALORIE_RANGE)
+    pool = recipe_search.find_recipes(calories=calories, limit=POOL_SIZE, db_path=db_path, **args)
+    if len(pool) < RESULTS_SHOWN:
+        pool = recipe_search.find_recipes(limit=POOL_SIZE, db_path=db_path, **args)
+    strict_ids = set(strict["RecipeId"])
+    fallback = [recipe for recipe in pool.to_dict("records") if recipe["RecipeId"] not in strict_ids]
+    fallback.sort(key=lambda recipe: fit_score(recipe, query))
+    return (recipes + fallback)[:MAX_RESULTS], bool(fallback)
 
 
 def fit_label(recipe, query):
     """Short text for how a recipe's calories compare with the slot budget."""
     target = query["Calories"]["target"]
-    gap = round(recipe["Calories"] - target)
-    if abs(gap) <= target * 0.05:
+    difference = recipe["Calories"] - target
+    if abs(difference) <= target * preference_parser.NUMERIC_TOLERANCE:
         return "On budget"
+    gap = round(difference)
     return f"{abs(gap):,} kcal {'over' if gap > 0 else 'under'}"
 
 

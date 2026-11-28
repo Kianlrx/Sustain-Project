@@ -1,11 +1,79 @@
+import gzip
 import json
+import os
+import re
+import shutil
 import sqlite3
+from contextlib import closing, nullcontext
+from http.client import HTTPException
+from pathlib import Path
+from tempfile import NamedTemporaryFile
+from threading import Lock
+from urllib.parse import urlsplit
+from urllib.request import urlopen
+from zlib import error as CompressionError
 
 import pandas as pd
+from streamlit import secrets
+from streamlit.errors import StreamlitSecretNotFoundError
 
 from services.food_data import NUTRITION_COLUMNS, OUTPUT_FOLDER
 
 DB_PATH = OUTPUT_FOLDER / "recipes.db"
+_download_lock = Lock()
+
+
+class RecipeDatabaseUnavailable(RuntimeError):
+    pass
+
+
+def ensure_database(db_path=None):
+    """Cache the published recipe index on first use when no local copy exists."""
+    path = Path(db_path or DB_PATH)
+    if path.is_file():
+        return path
+
+    with _download_lock:
+        if path.is_file():
+            return path
+        url = os.environ.get("RECIPE_DATABASE_URL")
+        if not url:
+            try:
+                url = secrets.get("RECIPE_DATABASE_URL")
+            except StreamlitSecretNotFoundError:
+                pass
+        if not url:
+            raise RecipeDatabaseUnavailable(
+                "The recipe catalog is unavailable. Set RECIPE_DATABASE_URL to the "
+                "Supabase Storage download URL or build the local recipe index."
+            )
+
+        temporary = None
+        try:
+            if urlsplit(url).scheme != "https":
+                raise ValueError("The catalog URL must use HTTPS.")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with NamedTemporaryFile(dir=path.parent, suffix=".tmp", delete=False) as output:
+                temporary = Path(output.name)
+                with urlopen(url, timeout=30) as response:
+                    compressed = urlsplit(url).path.endswith(".gz")
+                    with (gzip.GzipFile(fileobj=response) if compressed else nullcontext(response)) as source:
+                        shutil.copyfileobj(source, output, length=1024 * 1024)
+            with closing(sqlite3.connect(temporary.resolve().as_uri() + "?mode=ro", uri=True)) as conn:
+                if conn.execute("PRAGMA quick_check").fetchall() != [("ok",)]:
+                    raise sqlite3.DatabaseError("Recipe index failed its integrity check.")
+                conn.execute("SELECT RecipeId, Name, Calories, SkillLevel FROM recipes LIMIT 1")
+            if not path.is_file():
+                temporary.replace(path)
+        except (OSError, ValueError, EOFError, HTTPException, CompressionError, sqlite3.Error) as exc:
+            if not path.is_file():
+                raise RecipeDatabaseUnavailable(
+                    "The recipe catalog could not be downloaded. Check the Storage URL and try again."
+                ) from exc
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+        return path
 
 SKILL_LEVELS = ["Beginner", "Intermediate", "Advanced"]
 
@@ -140,8 +208,20 @@ def build_database():
     return recipes
 
 
+_COOK_TIME = re.compile(r"P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?)?")
+
+
+def _cook_minutes(value):
+    match = _COOK_TIME.fullmatch(value) if isinstance(value, str) else None
+    if not match or not any(match.groups()):
+        return None
+    days, hours, minutes, seconds = (float(part or 0) for part in match.groups())
+    return days * 1440 + hours * 60 + minutes + seconds / 60
+
+
 def find_recipes(calories=None, protein=None, carbs=None, fat=None, diets=(), allergens=(),
-                 keywords=(), skill="Advanced", limit=20, db_path=DB_PATH, cuisines=(), near_calories=None):
+                 keywords=(), skill="Advanced", limit=20, db_path=DB_PATH, cuisines=(), near_calories=None,
+                 max_cook_minutes=None, high_protein=False, low_carb=False, low_fat=False):
     conditions = []
     values = []
 
@@ -164,6 +244,16 @@ def find_recipes(calories=None, protein=None, carbs=None, fat=None, diets=(), al
             conditions.append(f"{column} <= ?")
             values.append(high)
 
+    # Protein and carbohydrates provide 4 kcal/g and fat provides 9 kcal/g.
+    if high_protein or low_carb or low_fat:
+        conditions.append("Calories > 0")
+    if high_protein:
+        conditions.append("ProteinContent * 400 >= Calories * 30")
+    if low_carb:
+        conditions.append("CarbohydrateContent * 400 < Calories * 26")
+    if low_fat:
+        conditions.append("FatContent * 900 <= Calories * 30")
+
     for diet in diets:
         if diet not in ["Vegetarian", "Vegan", "Keto"]:
             raise ValueError(f"Unknown diet: {diet}")
@@ -183,6 +273,10 @@ def find_recipes(calories=None, protein=None, carbs=None, fat=None, diets=(), al
         # recipe must have this food.com keyword, for example "Breakfast" or "< 30 Mins"
         conditions.append("Keywords LIKE ?")
         values.append(f'%"{keyword}"%')
+
+    if max_cook_minutes is not None:
+        conditions.append("cook_minutes(CookTime) <= ?")
+        values.append(max_cook_minutes)
 
     if cuisines:
         # recipe must match at least one cuisine, as a food.com keyword (e.g. "Indian"),
@@ -207,10 +301,10 @@ def find_recipes(calories=None, protein=None, carbs=None, fat=None, diets=(), al
     sql = "SELECT * FROM recipes WHERE " + " AND ".join(conditions) + f" ORDER BY {order} LIMIT ?"
     values.append(limit)
 
-    conn = sqlite3.connect(db_path)
-    results = pd.read_sql_query(sql, conn, params=values)
-    conn.close()
-    return results
+    with closing(sqlite3.connect(db_path)) as conn:
+        if max_cook_minutes is not None:
+            conn.create_function("cook_minutes", 1, _cook_minutes, deterministic=True)
+        return pd.read_sql_query(sql, conn, params=values)
 
 
 def get_recipe(recipe_id, db_path=DB_PATH):

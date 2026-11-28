@@ -16,7 +16,7 @@ TARGETS = {"calories": 2000, "protein_g": 150, "carbs_g": 200, "fat_g": 60}
 
 # every column the recipe database has after recipe_search.add_tags
 DATABASE_COLUMNS = {
-    "Vegetarian", "Vegan", "Keto", "SkillLevel", "Calories", "Keywords", "RecipeCategory", "Name",
+    "Vegetarian", "Vegan", "Keto", "SkillLevel", "Calories", "Keywords", "RecipeCategory", "Name", "CookTime",
     "ProteinContent", "CarbohydrateContent", "FatContent",
 } | {recipe_search.free_column(allergen) for allergen in recipe_search.ALLERGEN_WORDS}
 # keys in the query that are not one column, and what they search
@@ -41,7 +41,7 @@ RECIPES = pd.DataFrame([
     recipe(4, "Dal Tadka", ["lentils", "cumin"], 400, category="Indian"),
     recipe(5, "Tofu Stir Fry", ["tofu", "broccoli"], 600, keywords=["Asian"]),
     recipe(6, "Big Lentil Curry", ["lentils", "coconut milk"], 1400, keywords=["Indian"]),
-    recipe(7, "Creamy Vegetable Korma", ["cashews", "cauliflower"], 650, keywords=["Indian"]),
+    recipe(7, "Creamy Vegetable Korma", ["cashews", "cauliflower"], 620, keywords=["Indian"]),
 ])
 
 
@@ -78,9 +78,9 @@ class SlotTests(unittest.TestCase):
         self.assertEqual(recipe_finder.adjust_split({"Snack": 0}, "Snack", -5)["Snack"], 0)
         self.assertEqual(recipe_finder.adjust_split({"Snack": 100}, "Snack", 5)["Snack"], 100)
 
-    def test_slot_budget_is_share_of_daily_targets(self):
+    def test_slot_budget_is_share_of_daily_calorie_target(self):
         budget = recipe_finder.slot_budget(TARGETS, recipe_finder.DEFAULT_SPLIT, "Dinner")
-        self.assertEqual(budget, {"calories": 600, "protein_g": 45, "carbs_g": 60, "fat_g": 18})
+        self.assertEqual(budget, {"calories": 600})
 
 
 class QueryTests(unittest.TestCase):
@@ -105,10 +105,11 @@ class QueryTests(unittest.TestCase):
         self.assertEqual(query["Vegetarian"], 1)
         self.assertEqual(query["PeanutsFree"], 1)
         self.assertEqual(query["Keywords|RecipeCategory|Name"], ["Indian"])
-        self.assertEqual(query["Keywords"], ["< 60 Mins"])
+        self.assertEqual(query["CookTime"], {"max_minutes": 63})
         self.assertEqual(query["exclude_words"]["words"], ["mushroom", "chili", "cayenne"])
         self.assertEqual(query["SkillLevel"], {"max": 1})
-        self.assertEqual(query["Calories"], {"min": 360, "max": 660, "target": 600})
+        self.assertEqual(query["Calories"], {"min": 570, "max": 630, "target": 600})
+        self.assertTrue({"ProteinContent", "CarbohydrateContent", "FatContent"}.isdisjoint(query))
         self.assertEqual(query["rank_boost_words"], ["creamy"])
 
     def test_unknown_skill_and_missing_profile_are_safe(self):
@@ -146,6 +147,34 @@ class SearchTests(unittest.TestCase):
         names = self.names(filters)
         self.assertIn(names[0], ["Chana Masala", "Paneer Tikka", "Vindaloo Potatoes"])
         self.assertNotIn("Big Lentil Curry", names)  # far too big for one dinner
+
+    def test_macros_do_not_filter_or_rank_recipes(self):
+        candidates = pd.DataFrame([
+            recipe(1, "Close calorie match", ["tofu"], 600, protein=5, carbs=100, fat=20),
+            recipe(2, "Wider calorie match", ["tofu"], 630, protein=45, carbs=60, fat=18),
+        ])
+        recipe_search.save_database(recipe_search.add_tags(candidates), db_path=self.db_path)
+        query = recipe_finder.build_query(default_filters(), self.budget)
+        results, widened = recipe_finder.run_query(query, db_path=self.db_path)
+        self.assertEqual([row["RecipeId"] for row in results], [1, 2])
+        self.assertFalse(widened)
+
+    def test_requested_macro_shares_apply_even_to_wider_calorie_matches(self):
+        candidates = pd.DataFrame([
+            recipe(1, "Within every threshold", ["tofu"], 600, protein=45, carbs=38.9, fat=20),
+            recipe(2, "Protein just below", ["tofu"], 600, protein=44.9, carbs=30, fat=10),
+            recipe(3, "Carbs at the limit", ["tofu"], 600, protein=50, carbs=39, fat=10),
+            recipe(4, "Fat just above", ["tofu"], 600, protein=50, carbs=30, fat=20.1),
+            recipe(5, "Wider calorie match", ["tofu"], 660, protein=50, carbs=30, fat=22),
+        ])
+        recipe_search.save_database(recipe_search.add_tags(candidates), db_path=self.db_path)
+        filters = dict(default_filters(), high_protein=True, low_carb=True, low_fat=True)
+        self.assertEqual(self.names(filters), ["Within every threshold", "Wider calorie match"])
+
+    def test_low_effort_caps_search_at_beginner(self):
+        filters = dict(default_filters(), low_effort=True)
+        query = recipe_finder.build_query(filters, self.budget, {"cooking_skill": "Advanced"})
+        self.assertEqual(query["SkillLevel"], {"max": 1})
 
     def test_flavour_word_pushes_recipe_up(self):
         filters = default_filters()
