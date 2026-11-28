@@ -9,9 +9,14 @@ import time
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from streamlit import secrets
+from streamlit.errors import StreamlitSecretNotFoundError
+
 # Values the recipe search understands (see services/recipe_search.py)
 DIETS = ["Vegetarian", "Vegan", "Keto"]
 MEAL_CATEGORIES = ["Breakfast", "Lunch", "Dinner", "Snack", "Dessert", "Any"]
+MACRO_PREFERENCES = ("high_protein", "low_carb", "low_fat")
+BOOLEAN_PREFERENCES = ("low_effort", *MACRO_PREFERENCES)
 
 # Instructions sent to the model along with every craving.
 SYSTEM_PROMPT = """You turn a person's description of what they feel like eating into search filters for a recipe database.
@@ -25,9 +30,13 @@ Only use what the person says. Never add preferences they did not mention.
 - exclusions: ingredients to avoid, as short lowercase ingredient names. When they want to avoid a flavour,
   list what causes it, e.g. "not too spicy" gives ["chili", "jalapeno", "cayenne", "hot sauce"].
 - max_cook_minutes: the most minutes they want to spend cooking, e.g. "quick" is 30. null if not mentioned.
+- low_effort: true if they ask for a simple, easy, or low-effort meal. This limits cooking skill to Beginner.
+- high_protein: true if they ask for high protein. At least 30% of recipe calories must come from protein.
+- low_carb: true if they ask for low carb. Less than 26% of recipe calories must come from carbohydrates.
+- low_fat: true if they ask for low fat. No more than 30% of recipe calories may come from fat.
 
 If they both want and avoid something, e.g. "spicy but no spice", leave it out of flavors and keep the exclusions.
-If the text is not about food, return empty lists, Any and null."""
+Default each boolean to false unless the user asks for it. If the text is not about food, return empty lists, Any, null, and false booleans."""
 
 # Shape of the JSON the model must return. Groq's strict mode needs every field
 # listed in "required" and "additionalProperties" set to False.
@@ -42,10 +51,11 @@ FILTER_SCHEMA = {
         "diets": {"type": "array", "items": {"type": "string", "enum": DIETS}},
         "exclusions": WORD_LIST,
         "max_cook_minutes": {"type": ["integer", "null"]},
+        **{key: {"type": "boolean"} for key in BOOLEAN_PREFERENCES},
     },
     "required": [
         "cuisines", "flavors", "preparation", "meal_category",
-        "diets", "exclusions", "max_cook_minutes",
+        "diets", "exclusions", "max_cook_minutes", *BOOLEAN_PREFERENCES,
     ],
     "additionalProperties": False,
 }
@@ -58,8 +68,7 @@ MAX_ATTEMPTS = 3
 SECONDS_BETWEEN_CALLS = 2
 MAX_PROMPT_LENGTH = 500
 
-# food.com keywords for cooking time, quickest first
-TIME_KEYWORDS = [(15, "< 15 Mins"), (30, "< 30 Mins"), (60, "< 60 Mins"), (240, "< 4 Hours")]
+NUMERIC_TOLERANCE = 0.05
 
 _last_call = 0.0
 
@@ -69,9 +78,19 @@ class AIServiceError(Exception):
     """Raised when the AI model cannot give back usable filters."""
 
 
+def get_api_key():
+    key = os.environ.get("GROQ_API_KEY")
+    if key is None:
+        try:
+            key = secrets.get("GROQ_API_KEY")
+        except StreamlitSecretNotFoundError:
+            pass
+    return key.strip() if isinstance(key, str) else ""
+
+
 def request_filters(prompt):
     """Send the craving to the model and return its filters as a dict."""
-    api_key = os.environ.get("GROQ_API_KEY", "").strip()
+    api_key = get_api_key()
     if not api_key:
         raise AIServiceError("GROQ_API_KEY is not set.")
 
@@ -141,16 +160,14 @@ def _read_filters(payload):
 
 def to_search_args(filters):
     """Turn filters into arguments for recipe_search.find_recipes."""
-    keywords = []
-    if filters["max_cook_minutes"]:
-        # the quickest time keyword that still allows the time asked for
-        for minutes, keyword in TIME_KEYWORDS:
-            if filters["max_cook_minutes"] <= minutes:
-                keywords.append(keyword)
-                break
-    # cuisines, flavors and preparation have no database column yet,
-    # so they stay in the filters for ranking results later
-    return {"diets": filters["diets"], "allergens": filters["exclusions"], "keywords": keywords}
+    args = {"diets": filters["diets"], "allergens": filters["exclusions"]}
+    minutes = filters["max_cook_minutes"]
+    if minutes is not None:
+        args["max_cook_minutes"] = minutes + minutes * NUMERIC_TOLERANCE
+    if filters.get("low_effort") is True:
+        args["skill"] = "Beginner"
+    args.update({key: True for key in MACRO_PREFERENCES if filters.get(key) is True})
+    return args
 
 def default_filters(meal_category="Any"):
     """Broad filters used when the craving is unclear or the AI service fails."""
@@ -159,6 +176,7 @@ def default_filters(meal_category="Any"):
         "meal_category": meal_category,
         "diets": [], "exclusions": [],
         "max_cook_minutes": None,
+        **dict.fromkeys(BOOLEAN_PREFERENCES, False),
     }
 
 
@@ -178,6 +196,8 @@ def clean_filters(raw, meal_category="Any"):
     # True and False count as numbers in Python, so rule them out
     if isinstance(minutes, int) and not isinstance(minutes, bool) and 0 < minutes <= 24 * 60:
         filters["max_cook_minutes"] = minutes
+    for key in BOOLEAN_PREFERENCES:
+        filters[key] = raw.get(key) is True
 
     # Something can't be wanted and avoided at once ("spicy but no spice"), so avoiding wins.
     # Words are compared by their first 4 letters so "spicy" matches "spice".

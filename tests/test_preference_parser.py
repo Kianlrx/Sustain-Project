@@ -11,6 +11,7 @@ SAMPLE = {
     "cuisines": ["thai"], "flavors": ["spicy"], "preparation": [],
     "meal_category": "Dinner", "diets": ["Vegan"], "exclusions": ["peanut"],
     "max_cook_minutes": 20,
+    "low_effort": False, "high_protein": False, "low_carb": False, "low_fat": False,
 }
 
 
@@ -54,6 +55,13 @@ class TestServiceClient(unittest.TestCase):
         self.assertTrue(sent["response_format"]["json_schema"]["strict"])
         self.assertEqual(urlopen.call_args.kwargs["timeout"], parser.TIMEOUT_SECONDS)
 
+    def test_reads_key_from_streamlit_secrets(self, urlopen, sleep):
+        os.environ.pop("GROQ_API_KEY", None)
+        urlopen.return_value = fake_response(json.dumps(SAMPLE))
+        with patch.object(parser, "secrets", {"GROQ_API_KEY": "secret-test-key"}):
+            self.assertEqual(parser.request_filters("vegan thai"), SAMPLE)
+        self.assertEqual(urlopen.call_args.args[0].get_header("Authorization"), "Bearer secret-test-key")
+
     def test_retries_after_rate_limit(self, urlopen, sleep):
         urlopen.side_effect = [rate_limited(), fake_response(json.dumps(SAMPLE))]
         self.assertEqual(parser.request_filters("thai"), SAMPLE)
@@ -91,10 +99,18 @@ class TestServiceClient(unittest.TestCase):
 
 
 class TestSearchArgs(unittest.TestCase):
+    def test_only_explicit_boolean_preferences_are_applied(self):
+        filters = parser.clean_filters(dict(SAMPLE, low_effort=True, high_protein=True, low_carb="true"))
+        self.assertEqual(
+            parser.to_search_args(filters),
+            {"diets": ["Vegan"], "allergens": ["peanut"], "max_cook_minutes": 21.0,
+             "skill": "Beginner", "high_protein": True},
+        )
+
     def test_filters_become_find_recipes_arguments(self):
         self.assertEqual(
             parser.to_search_args(SAMPLE),
-            {"diets": ["Vegan"], "allergens": ["peanut"], "keywords": ["< 30 Mins"]},
+            {"diets": ["Vegan"], "allergens": ["peanut"], "max_cook_minutes": 21.0},
         )
 
 
