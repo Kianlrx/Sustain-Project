@@ -17,6 +17,7 @@ legend { font-weight: 600; margin-bottom: .55rem; }
     display: grid; grid-template-columns: minmax(0,1fr) 34px 3.2rem 34px 5.5rem; align-items: center;
     gap: .35rem; padding: 4px 8px 4px 4px; border: 1px solid var(--sustain-border);
     border-radius: 10px; background: var(--sustain-surface);
+    box-shadow: var(--sustain-box-shadow);
 }
 .slot:has(input:checked) { border-color: var(--sustain-accent); }
 .slot label { display: flex; gap: .5rem; align-items: center; cursor: pointer; padding: .45rem; }

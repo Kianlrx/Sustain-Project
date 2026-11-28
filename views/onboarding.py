@@ -91,6 +91,9 @@ DEFAULTS = {
 ONBOARDING_CSS = """
 <style>
     .block-container { max-width:860px; padding:4.5rem 1.25rem 9rem; }
+    .ob-stepper, .st-key-ob_card, .st-key-ob_bodyfat, .cards label {
+        box-shadow: var(--sustain-box-shadow);
+    }
     .ob-brand { display:flex; align-items:center; gap:.75rem; flex-wrap:wrap; }
     .ob-brand img { width:40px; height:40px; border-radius:11px; }
     .ob-wordmark { font-size:1.125rem; font-weight:600; color:var(--sustain-text); }
@@ -163,9 +166,9 @@ ONBOARDING_CSS = """
 _ICONS = {
     "body": '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
     "lifestyle": (
-        '<path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M6 8H5a4 4 0 0 0 0 8h1"/>'
-        '<line x1="6" y1="12" x2="18" y2="12"/><line x1="8" y1="6" x2="8" y2="18"/>'
-        '<line x1="16" y1="6" x2="16" y2="18"/>'
+        '<rect x="4" y="5" width="4" height="14" rx="1"/>'
+        '<rect x="16" y="5" width="4" height="14" rx="1"/>'
+        '<path d="M8 12h8M4 12H2m18 0h2"/>'
     ),
     "shield": '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
 }

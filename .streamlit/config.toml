@@ -27,7 +27,7 @@ borderColor = "#232325"
 
 [theme.light]
 primaryColor = "#dc2a46"
-backgroundColor = "#fafafa"
+backgroundColor = "#FFFFFF"
 secondaryBackgroundColor = "#f0f0f1"
 textColor = "#171717"
 borderColor = "#e4e4e7"

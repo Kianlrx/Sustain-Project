@@ -1,6 +1,8 @@
 # Weight page: log weigh-ins, see them on a chart against the expected curve.
 from datetime import date, timedelta
+from heapq import nsmallest
 from html import escape
+from math import log
 from time import time
 
 import altair as alt
@@ -16,10 +18,9 @@ LB_PER_KG = 2.2046226218
 # Within this many kcal of maintenance the expected weight is flat.
 MAINTENANCE_BAND_KCAL = 25
 GREEN, RED, BLUE = "#34d399", "#dc2a46", "#5aa9d6"
-# Red trend line: needs this many logs to smooth, fits this share of them at a time.
+# Expand the local fit when weigh-ins are too sparse for its normal date radius.
 TREND_MIN_NEIGHBOURS = 4
-TREND_SHARE = 0.24
-TREND_WEIGH_IN_PULL = 0.4
+TREND_MAX_SMOOTHING_DAYS = 122
 DOT_HIT_TARGET_SIZE = 300
 # The chart can never be zoomed in past this many days (or out past the logged dates).
 MIN_WINDOW_DAYS = 7
@@ -152,38 +153,45 @@ def expected_weights(start_date, start_kg, end_date, daily_delta_kcal):
     return series
 
 
-def trend_line(entries):
-    """Fit a straight line for small samples and smooth larger samples locally."""
+def trend_line(entries, window_days=None):
+    """Fit local linear trends with less pull toward weigh-ins at wider zooms."""
     weights = [e["weight_kg"] for e in entries]
     if len(entries) <= 2:
         return weights
     days = [date.fromisoformat(e["log_date"]).toordinal() for e in entries]
-    if len(entries) < TREND_MIN_NEIGHBOURS:
-        mean_day = sum(days) / len(days)
-        mean_weight = sum(weights) / len(weights)
-        offsets = [day - mean_day for day in days]
-        spread = sum(offset ** 2 for offset in offsets)
-        covariance = sum(offset * (weight - mean_weight) for offset, weight in zip(offsets, weights))
-        slope = covariance / spread if spread else 0
-        return [mean_weight + slope * offset for offset in offsets]
-    neighbours = max(TREND_MIN_NEIGHBOURS, round(len(entries) * TREND_SHARE))
-    fitted = []
-    for day in days:
-        nearest = sorted(range(len(days)), key=lambda i: abs(days[i] - day))[:neighbours]
-        reach = max(abs(days[nearest[-1]] - day), 1) * 1.0001
-        w = [(1 - (abs(days[i] - day) / reach) ** 3) ** 3 for i in nearest]
-        total = sum(w)
-        mean_x = sum(wi * days[i] for wi, i in zip(w, nearest)) / total
-        mean_y = sum(wi * weights[i] for wi, i in zip(w, nearest)) / total
-        spread = sum(wi * (days[i] - mean_x) ** 2 for wi, i in zip(w, nearest))
+    if window_days is None:
+        window_days = max(days) - min(days) + 1
+    if window_days <= MIN_WINDOW_DAYS:
+        return weights
+
+    # Keep the four-month fit settings for wider ranges.
+    window_days = min(window_days, TREND_MAX_SMOOTHING_DAYS)
+    zoom = log(window_days / MIN_WINDOW_DAYS) / log(RANGES["1Y"] / MIN_WINDOW_DAYS)
+    weigh_in_pull = (1 - zoom) ** 2
+    radius = max(MIN_WINDOW_DAYS, window_days / 3)
+    neighbours = min(TREND_MIN_NEIGHBOURS, len(days))
+    trend = []
+    for day, actual in zip(days, weights):
+        offsets = [other - day for other in days]
+        distances = nsmallest(neighbours, map(abs, offsets))
+        reach = max(radius, 1.5 * distances[-1])
+        weighted = [
+            (offset, weight, (1 - (abs(offset) / reach) ** 3) ** 3)
+            for offset, weight in zip(offsets, weights)
+            if abs(offset) < reach
+        ]
+        total = sum(w for _, _, w in weighted)
+        mean_x = sum(w * x for x, _, w in weighted) / total
+        mean_y = sum(w * y for _, y, w in weighted) / total
+        spread = sum(w * (x - mean_x) ** 2 for x, _, w in weighted)
         slope = (
-            sum(wi * (days[i] - mean_x) * (weights[i] - mean_y) for wi, i in zip(w, nearest))
-            / spread
+            sum(w * (x - mean_x) * (y - mean_y) for x, y, w in weighted) / spread
             if spread > 1e-9
             else 0.0
         )
-        fitted.append(mean_y + slope * (day - mean_x))
-    return fitted
+        fitted = mean_y - slope * mean_x
+        trend.append(fitted + weigh_in_pull * (actual - fitted))
+    return trend
 
 
 def clamp_window(start, end, first, last):
@@ -249,7 +257,7 @@ def _line_window(data, value_column, line_start, line_end):
     )
 
 
-def _weight_chart(entries, expected, unit, factor, start, end, *, connect_weigh_ins=False):
+def _weight_chart(entries, expected, unit, factor, start, end):
     """Altair chart of [start, end]: green log dots, red trend, blue dotted expected."""
     first_date, last_date = start.isoformat(), end.isoformat()
     visible_entries = [entry for entry in entries if first_date <= entry["log_date"] <= last_date]
@@ -281,16 +289,8 @@ def _weight_chart(entries, expected, unit, factor, start, end, *, connect_weigh_
     edge_gap = (domain_end - domain_start) * LINE_EDGE_GAP_FRACTION
     line_start = domain_start + edge_gap
     line_end = domain_end - edge_gap
-    trend_weights = (
-        [entry["weight_kg"] for entry in fit_entries]
-        if connect_weigh_ins else trend_line(fit_entries)
-    )
-    if not connect_weigh_ins:
-        # Keep the fitted curve while pulling each point toward its actual weigh-in.
-        trend_weights = [
-            fitted + TREND_WEIGH_IN_PULL * (entry["weight_kg"] - fitted)
-            for entry, fitted in zip(fit_entries, trend_weights)
-        ]
+    window_days = (end - start).days + 1
+    trend_weights = trend_line(fit_entries, window_days)
     trend = pd.DataFrame({
         "date": pd.to_datetime([entry["log_date"] for entry in fit_entries]),
         "average": [weight * factor for weight in trend_weights],
@@ -339,7 +339,7 @@ def _weight_chart(entries, expected, unit, factor, start, end, *, connect_weigh_
         alt.Chart(trend)
         .mark_line(
             color=RED, strokeWidth=2.4, clip=True,
-            interpolate="monotone" if not connect_weigh_ins else "linear",
+            interpolate="linear" if window_days <= MIN_WINDOW_DAYS else "monotone",
         )
         .encode(x=x, y=alt.Y("average:Q", scale=alt.Scale(zero=False, nice=True, padding=12)))
     )
@@ -518,7 +518,7 @@ def render_weight_page():
             window = clamp_window(*window, slider_start, last_day)
             st.session_state.weight_window_applied = window
         window_start, window_end = window
-        connect_weigh_ins = preset == "7D" and window == preset_window
+        connect_weigh_ins = (window_end - window_start).days + 1 <= MIN_WINDOW_DAYS
         trend_label = "Connected weigh-ins" if connect_weigh_ins else "Average weight trend"
         st.markdown(
             '<div class="wt-legend">'
@@ -531,7 +531,6 @@ def render_weight_page():
         st.altair_chart(
             _weight_chart(
                 entries, expected, unit, factor, window_start, window_end,
-                connect_weigh_ins=connect_weigh_ins,
             ),
             use_container_width=True,
             theme=None,

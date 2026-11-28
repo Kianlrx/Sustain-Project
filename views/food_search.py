@@ -68,7 +68,7 @@ def _render_food_result(user_id, food, meal_slot, log_date=None):
     maximum = max(default_amount, 2000)
     nutrients = food["nutrients"]
 
-    with st.container(border=True):
+    with st.container(border=True, key=f"bordered_card_food_preview_{food_id}"):
         result = food_amount(
             key=f"food_amount_preview_{food_id}",
             data={
@@ -120,7 +120,7 @@ def render_saved_recipes_dialog(user_id):
         st.info("You haven't saved any recipes yet.")
     for recipe in recipes:
         recipe_id = recipe["recipe_id"]
-        with st.container(border=True):
+        with st.container(border=True, key=f"bordered_card_saved_recipe_{recipe_id}"):
             title, action = st.columns([5, 1])
             title.markdown(f"**{recipe.get('Name', recipe.get('name', 'Saved recipe'))}**")
             calories = recipe.get("Calories", recipe.get("calories"))
