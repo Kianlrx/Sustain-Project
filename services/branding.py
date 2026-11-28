@@ -35,6 +35,7 @@ THEME_TOKENS = {
         "highlight-color": "rgba(255, 255, 255, .04)",
         "dock": "#19191b",
         "shadow-color": "rgba(0, 0, 0, .3)",
+        "box-shadow-color": "rgba(0, 0, 0, .22)",
         "positive": "#4cc38a",
         "negative": "#e5484d",
         "negative-soft": "rgba(229, 72, 77, .12)",
@@ -42,7 +43,7 @@ THEME_TOKENS = {
         "info": "#5aa9d6",
     },
     "light": {
-        "bg": "#fafafa",
+        "bg": "#FFFFFF",
         "surface": "#ffffff",
         "raised": "#f4f4f5",
         "hover": "#f4f4f5",
@@ -59,6 +60,7 @@ THEME_TOKENS = {
         "highlight-color": "rgba(0, 0, 0, .05)",
         "dock": "#ffffff",
         "shadow-color": "rgba(0, 0, 0, .08)",
+        "box-shadow-color": "rgba(0, 0, 0, .055)",
         "positive": "#16a34a",
         "negative": "#dc2626",
         "negative-soft": "rgba(220, 38, 38, .08)",
@@ -79,5 +81,6 @@ def theme_tokens_css():
     tokens.update(SHARED_TOKENS)
     tokens["highlight"] = "0 1px 1px var(--sustain-highlight-color)"
     tokens["popover-shadow"] = "0 8px 24px var(--sustain-shadow-color)"
+    tokens["box-shadow"] = "0 0 4px var(--sustain-box-shadow-color)"
     lines = "".join(f"--sustain-{name}: {value};" for name, value in tokens.items())
     return f":root {{ {lines} }}"

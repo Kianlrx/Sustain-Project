@@ -101,7 +101,7 @@ class ExpectedWeightTests(unittest.TestCase):
         self.assertEqual(marks[0]["strokeDash"], [1, 7])
         self.assertTrue(marks[0]["clip"])
         self.assertTrue(marks[1]["clip"])
-        self.assertEqual(marks[1]["interpolate"], "monotone")
+        self.assertEqual(marks[1]["interpolate"], "linear")
         self.assertEqual(marks[2]["color"], "#34d399")
         self.assertEqual(
             spec["layer"][0]["encoding"]["x"]["scale"]["domain"],
@@ -152,11 +152,10 @@ class ExpectedWeightTests(unittest.TestCase):
                 "2026-01-06T00:00:00",
             ],
         )
-        fitted = trend_line(entries[1:6])[1:]
-        for row, baseline, entry in zip(trend_data[1:], fitted, entries[2:6]):
-            actual = entry["weight_kg"]
-            self.assertLessEqual(abs(row["average"] - actual), abs(baseline - actual))
-            self.assertAlmostEqual(row["average"], baseline + 0.4 * (actual - baseline))
+        self.assertEqual(
+            [row["average"] for row in trend_data[1:]],
+            [entry["weight_kg"] for entry in entries[2:6]],
+        )
         self.assertEqual(
             [
                 expected_data[0]["date"],
@@ -174,13 +173,13 @@ class ExpectedWeightTests(unittest.TestCase):
             {"log_date": f"2026-01-{day:02}", "weight_kg": weight, "note": ""}
             for day, weight in enumerate((83, 80, 80), 1)
         ]
-        expected = expected_weights(date(2026, 1, 1), 83, date(2026, 1, 3), -500)
+        expected = expected_weights(date(2026, 1, 1), 83, date(2026, 2, 1), -500)
         spec = _weight_chart(
-            entries, expected, "kg", 1.0, date(2026, 1, 2), date(2026, 1, 3)
+            entries, expected, "kg", 1.0, date(2026, 1, 2), date(2026, 2, 1)
         ).to_dict()
         trend = spec["datasets"][spec["layer"][1]["data"]["name"]]
-        self.assertEqual([row["average"] for row in trend[1:]], [80.6, 79.7])
-        self.assertAlmostEqual(trend[0]["average"], 82.637)
+        self.assertGreater(trend[1]["average"], 80)
+        self.assertLess(trend[2]["average"], 80)
         self.assertEqual([row["date"][:10] for row in trend], ["2026-01-01", "2026-01-02", "2026-01-03"])
 
     def test_seven_day_line_connects_actual_weights_from_preceding_log(self):
@@ -191,13 +190,40 @@ class ExpectedWeightTests(unittest.TestCase):
         expected = expected_weights(date(2026, 1, 1), 86, date(2026, 1, 9), -500)
         spec = _weight_chart(
             entries, expected, "kg", 1.0, date(2026, 1, 3), date(2026, 1, 9),
-            connect_weigh_ins=True,
         ).to_dict()
         self.assertEqual(spec["layer"][1]["mark"]["interpolate"], "linear")
         trend = spec["datasets"][spec["layer"][1]["data"]["name"]]
         self.assertEqual([row["average"] for row in trend[1:]], [80, 81])
         self.assertAlmostEqual(trend[0]["average"], 82.92)
         self.assertEqual(trend[0]["date"], "2026-01-02T01:55:12")
+
+    def test_custom_date_span_controls_smoothing_even_with_the_same_logs(self):
+        end = date(2026, 6, 30)
+        entries = [
+            {"log_date": (end - timedelta(days=offset)).isoformat(),
+             "weight_kg": 80 + (-1) ** offset, "note": ""}
+            for offset in range(19, -1, -1)
+        ]
+        expected = expected_weights(end - timedelta(days=364), 80, end, 0)
+
+        def fitted_weights(days):
+            start = end - timedelta(days=days - 1)
+            spec = _weight_chart(entries, expected, "kg", 1.0, start, end).to_dict()
+            trend = spec["datasets"][spec["layer"][1]["data"]["name"]]
+            return [row["average"] for row in trend if row["date"][:10] >= entries[0]["log_date"]]
+
+        def mean_distance_from_80(values):
+            return sum(abs(value - 80) for value in values) / len(values)
+
+        short = mean_distance_from_80(fitted_weights(23))
+        medium = mean_distance_from_80(fitted_weights(70))
+        capped = fitted_weights(122)
+        yearly = fitted_weights(365)
+        self.assertGreater(short, medium)
+        self.assertGreater(medium, mean_distance_from_80(capped))
+        self.assertLess(mean_distance_from_80(capped), 0.2)
+        self.assertEqual(capped, fitted_weights(183))
+        self.assertEqual(capped, yearly)
 
     def test_chart_trend_stops_at_latest_log(self):
         entries = [

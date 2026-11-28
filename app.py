@@ -101,6 +101,23 @@ THEME_STYLES = "<style>" + theme_tokens_css() + """
     [data-testid="stHeader"] { background: transparent; }
     h1, h2, h3 { letter-spacing: 0; }
     [data-testid="InputInstructions"] { display: none; }
+    .st-key-dashboard_profile,
+    .sd-calorie-card, .sd-macro-card, .sd-budget, .sd-coaching, .sd-chart, .sd-breakdown,
+    .st-key-diary_summary_card, [class*="st-key-diary_meal_card_"],
+    .st-key-finder_budget, [class*="st-key-finder_result_"],
+    .st-key-weight_form, .st-key-weight_history, .st-key-weight_chart,
+    .wt-kpi, .wt-empty, .wt-success-popup,
+    [class*="st-key-bordered_card_"],
+    [data-testid="stExpander"] > details,
+    [data-testid="stAlert"],
+    [data-testid="stForm"]:has(
+        [class*="st-key-FormSubmitter-login_form-"],
+        [class*="st-key-FormSubmitter-signup_form-"],
+        [class*="st-key-FormSubmitter-profile_form-"],
+        [class*="st-key-FormSubmitter-quick_log_"][class*="_form-Log-food"]
+    ) {
+        box-shadow: var(--sustain-box-shadow);
+    }
 </style>"""
 
 

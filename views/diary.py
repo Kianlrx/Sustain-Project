@@ -26,6 +26,9 @@ DIARY_CARD_SHADOWS = """
         max-width: 1440px;
         padding: 2rem clamp(1rem, 3vw, 2rem) 3rem;
     }
+    .st-key-diary_date h1 {
+        padding: 0;
+    }
     .st-key-diary_summary_card {
         padding: 20px 24px;
         border: 1px solid var(--sustain-border);
@@ -86,7 +89,7 @@ DIARY_CARD_SHADOWS = """
         font-variant-numeric: tabular-nums;
         line-height: 1.2;
     }
-    [class*="st-key-diary_addwrap_"] button {
+    [class*="st-key-diary_addwrap_"] [data-testid="stPopoverButton"] {
         min-height: 32px;
         padding: 4px 12px;
         white-space: nowrap;
@@ -159,7 +162,7 @@ DIARY_CARD_SHADOWS = """
     .block-container h1 {
         padding-top: 0;
     }
-    [class*="st-key-diary_addwrap_"] button:hover {
+    [class*="st-key-diary_addwrap_"] [data-testid="stPopoverButton"]:hover {
         border: 0;
         background: var(--sustain-accent-hover);
         color: #fff;
@@ -182,16 +185,15 @@ DIARY_CARD_SHADOWS = """
         border: 0;
         border-radius: 8px;
         background: transparent;
-        color: var(--sustain-text);
         font-size: .92rem;
     }
     [data-testid="stPopoverBody"] [class*="st-key-diary_menu_"] [data-testid="stButton"] button:hover {
-        background: var(--sustain-hover);
-        color: var(--sustain-text);
+        background: color-mix(in srgb, currentColor 8%, transparent);
     }
     [class*="st-key-diary_menu_"] button span[data-testid="stIconMaterial"] {
         font-size: 1.125rem;
-        color: var(--sustain-muted);
+        color: inherit;
+        opacity: .8;
     }
     .st-key-diary_request_meal button {
         min-height: 38px;
@@ -238,14 +240,15 @@ def render_diary_page():
         return
 
     st.html(DIARY_CARD_SHADOWS)
-    title_col, date_col = st.columns([3, 2], vertical_alignment="center")
     today = date.today()
     saved_date = f"diary_selected_date_{user['id']}"
     picker_key = f"diary_date_picker_{user['id']}"
     st.session_state.setdefault(picker_key, st.session_state.get(saved_date, today))
-    with date_col, st.container(
-        key="diary_date", horizontal=True, horizontal_alignment="right", vertical_alignment="center",
+    with st.container(
+        key="diary_date", horizontal=True, horizontal_alignment="distribute",
+        vertical_alignment="center",
     ):
+        title = st.empty()
         selected = st.date_input(
             "Diary date", min_value=date(1900, 1, 1), max_value=today,
             key=picker_key, format="DD/MM/YYYY", label_visibility="collapsed",
@@ -255,7 +258,11 @@ def render_diary_page():
         selected = st.session_state.get(saved_date, today)
     else:
         st.session_state[saved_date] = selected
-    title_col.title("Today" if selected == today else selected.strftime("%A, %d %B"), anchor=False)
+    title.title(
+        "Today's Diary" if selected == today else selected.strftime("%A, %d %B"),
+        anchor=False,
+        width="content",
+    )
     log_date = selected.isoformat()
 
     targets = targets_service.recalibrate(user["id"])
@@ -287,16 +294,12 @@ def render_diary_page():
         _render_custom_food_dialog(user["id"], log_date)
 
     with st.container(
-        key="diary_meals_toolbar", horizontal=True, horizontal_alignment="distribute",
+        key="diary_meals_toolbar", horizontal=True,
         vertical_alignment="center", gap="small",
     ):
         st.html(
-            f'<div style="display:flex;align-items:center;gap:.35rem;">'
-            f'<h2 style="margin:0;padding:0;color:var(--sustain-text);font-size:1.375rem;'
-            f'font-weight:500;">Meals</h2>'
-            f'<span style="margin-left:4px;color:var(--sustain-muted);'
-            f'font-size:.8125rem;font-variant-numeric:tabular-nums;">{len(entries)} '
-            f'{"item" if len(entries) == 1 else "items"}</span></div>',
+            '<h2 style="margin:0;padding:0;color:var(--sustain-text);font-size:1.375rem;'
+            'font-weight:500;">Meals</h2>',
             width="content",
         )
         if st.button(
@@ -435,6 +438,7 @@ def _render_add_menu(slot):
                         label,
                         key=f"diary_add_{slot_key}_{dialog}_c-{color}",
                         icon=icon,
+                        type="tertiary",
                         use_container_width=True,
                     ):
                         st.session_state.next_diary_dialog = dialog
@@ -450,7 +454,7 @@ def _render_saved_foods_dialog(user_id, log_date):
     if not foods:
         st.info("No saved foods yet. Foods you log will show up here.")
     for index, food in enumerate(foods):
-        with st.container(border=True):
+        with st.container(border=True, key=f"bordered_card_saved_food_{index}"):
             info, action = st.columns([5, 1.4], vertical_alignment="center")
             info.markdown(f"**{escape(food['food_name'])}**")
             info.caption(
